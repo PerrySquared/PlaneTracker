@@ -1,7 +1,9 @@
+from abc import ABC, abstractmethod
+
 from pydantic import BaseModel
 
 
-class AircraftInformationBase(BaseModel):
+class AircraftInformationBaseResponse(BaseModel):
     """Canonical internal representation — no knowledge of any API's field names."""
 
     icao24: str | None = None
@@ -17,3 +19,16 @@ class AircraftInformationBase(BaseModel):
     track: float | None = None
     last_seen_position: dict | None = None
     source: str = ""
+
+
+class AircraftInformationBase(ABC):
+    BASE_URL: str
+    SOURCE: str
+
+    @abstractmethod
+    async def fetch_data(self, values: list[str], path: str | None) -> dict: ...
+
+    @abstractmethod
+    def normalize_response(
+        self, raw_response: dict
+    ) -> list[AircraftInformationBaseResponse]: ...

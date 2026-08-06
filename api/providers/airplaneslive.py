@@ -4,21 +4,43 @@ from http import HTTPStatus
 import aiohttp
 from aiohttp import ClientTimeout
 
-from api.providers.base import AircraftInformationBase
+from api.providers.base import AircraftInformationBase, AircraftInformationBaseResponse
 from exceptions import AircraftFetchError
 
 
-class AircraftInformation:
+class AircraftInformation(AircraftInformationBase):
     TIMEOUT = ClientTimeout(total=10)
     BASE_URL = "https://api.airplanes.live/v2"
     SOURCE = "airplanes.live"
 
-    def normalize_response(self, response: dict) -> list[AircraftInformationBase]:
+    def normalize_response(
+        self, raw_response: dict
+    ) -> list[AircraftInformationBaseResponse]:
         """Normalize data from a fetch into a list of AircraftInformationBase instances."""
 
-        r_list = response.get("ac", [])  # access the AirCrafts part of a response
+        r_list = raw_response.get("ac", [])  # access the AirCrafts part of a response
 
         return [self._parse_one_response(r) for r in r_list]
+
+    async def fetch_data(self, values: list[str], path: str | None = "hex") -> dict:
+        """Fetch data from a selection of airplaneslive API endpoints.
+
+        Requires the desired endpoint part of the path (hex, callsign, reg...)
+        and a list of search strings (a list with a singular element is acceptable)
+
+        Available endpoints:
+        /hex/[hex]
+        /callsign/[callsign]
+        /reg/[reg]
+        /type/[type]
+        /squawk/[squawk]
+
+        More: https://airplanes.live/api-guide/
+        """
+
+        url = f"{self.BASE_URL}/{path}/{','.join(values)}"
+        response = await self._request(url)
+        return await self._get_json(response)
 
     async def _request(self, url: str) -> aiohttp.ClientResponse:
         """Send the request, raising AircraftFetchError on any transport-level failure."""
@@ -43,27 +65,9 @@ class AircraftInformation:
         except aiohttp.ContentTypeError:
             raise AircraftFetchError(f"{self.SOURCE} returned non-JSON response")
 
-    async def fetch_data(self, path: str, values: list[str]) -> dict:
-        """Fetch data from a selection of airplaneslive API endpoints.
-
-        Requires the desired endpoint part of the path (hex, callsign, reg...)
-        and a list of search strings (a list with a singular element is acceptable)
-
-        Available endpoints:
-        /hex/[hex]
-        /callsign/[callsign]
-        /reg/[reg]
-        /type/[type]
-        /squawk/[squawk]
-
-        More: https://airplanes.live/api-guide/
-        """
-
-        url = f"{self.BASE_URL}/{path}/{','.join(values)}"
-        response = await self._request(url)
-        return await self._get_json(response)
-
-    def _parse_one_response(self, response_plane: dict) -> AircraftInformationBase:
+    def _parse_one_response(
+        self, response_plane: dict
+    ) -> AircraftInformationBaseResponse:
         """Normalize a single raw aircraft record from the airplanes.live API into
         an AircraftInformationBase.
 
@@ -100,7 +104,7 @@ class AircraftInformation:
             lat = last_position.get("lat")
             lon = last_position.get("lon")
 
-        return AircraftInformationBase(
+        return AircraftInformationBaseResponse(
             icao24=r.get("hex"),
             registration=r.get("r"),
             aircraft_type=r.get("t"),
@@ -120,7 +124,7 @@ class AircraftInformation:
 async def main():
     ICAO24 = "AC5CD7"
     pi = AircraftInformation()
-    pd = await pi.fetch_data("hex", [ICAO24])
+    pd = await pi.fetch_data([ICAO24])
     r = pi.normalize_response(pd)
     print(r)
 
