@@ -14,7 +14,9 @@ class AircraftInformation:
     SOURCE = "airplanes.live"
 
     def normalize_response(self, response: dict) -> list[AircraftInformationBase]:
-        r_list = response.get("ac", [])
+        """Normalize data from a fetch into a list of AircraftInformationBase instances."""
+
+        r_list = response.get("ac", [])  # access the AirCrafts part of a response
 
         return [self._parse_one_response(r) for r in r_list]
 
@@ -42,6 +44,21 @@ class AircraftInformation:
             raise AircraftFetchError(f"{self.SOURCE} returned non-JSON response")
 
     async def fetch_data(self, path: str, values: list[str]) -> dict:
+        """Fetch data from a selection of airplaneslive API endpoints.
+
+        Requires the desired endpoint part of the path (hex, callsign, reg...)
+        and a list of search strings (a list with a singular element is acceptable)
+
+        Available endpoints:
+        /hex/[hex]
+        /callsign/[callsign]
+        /reg/[reg]
+        /type/[type]
+        /squawk/[squawk]
+
+        More: https://airplanes.live/api-guide/
+        """
+
         url = f"{self.BASE_URL}/{path}/{','.join(values)}"
         response = await self._request(url)
         return await self._get_json(response)
