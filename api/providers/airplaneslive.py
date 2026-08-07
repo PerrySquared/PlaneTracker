@@ -1,4 +1,3 @@
-import asyncio
 from http import HTTPStatus
 
 import aiohttp
@@ -38,6 +37,8 @@ class AircraftInformation(AircraftInformationBase):
         More: https://airplanes.live/api-guide/
         """
 
+        path = path or "hex"
+
         url = f"{self.BASE_URL}/{path}/{','.join(values)}"
         response = await self._request(url)
         return await self._get_json(response)
@@ -66,7 +67,7 @@ class AircraftInformation(AircraftInformationBase):
             raise AircraftFetchError(f"{self.SOURCE} returned non-JSON response")
 
     def _parse_one_response(
-        self, response_plane: dict
+        self, response_aircraft: dict
     ) -> AircraftInformationBaseResponse:
         """Normalize a single raw aircraft record from the airplanes.live API into
         an AircraftInformationBase.
@@ -84,7 +85,7 @@ class AircraftInformation(AircraftInformationBase):
         track     -> track               true track over ground, degrees (0-359)
 
         Args:
-            response_plane: A single element of the API response's `ac` array.
+            response_aircraft: A single element of the API response's `ac` array.
 
         Returns:
             The normalized AircraftInformationBase for this aircraft.
@@ -94,7 +95,7 @@ class AircraftInformation(AircraftInformationBase):
                 validation during model construction.
         """
 
-        r = response_plane
+        r = response_aircraft
 
         lat = r.get("lat")
         lon = r.get("lon")
@@ -119,15 +120,3 @@ class AircraftInformation(AircraftInformationBase):
             last_seen_position=last_position,
             source=self.SOURCE,
         )
-
-
-async def main():
-    ICAO24 = "AC5CD7"
-    pi = AircraftInformation()
-    pd = await pi.fetch_data([ICAO24])
-    r = pi.normalize_response(pd)
-    print(r)
-
-
-if __name__ == "__main__":
-    asyncio.run(main())
