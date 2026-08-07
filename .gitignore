@@ -9,3 +9,6 @@ wheels/
 # Virtual environments
 .venv
 test.py
+
+# Node modules
+gui/node_modules
