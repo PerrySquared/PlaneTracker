@@ -1,7 +1,23 @@
-import os
+"""
+SQLAlchemy ORM models for the aircraft tracker's SQLite database.
 
-from sqlalchemy import MetaData, create_engine
-from sqlalchemy.orm import DeclarativeBase, sessionmaker
+Layout:
+  - Aircraft: one row per airframe, keyed by hex (ICAO24) — the only
+    genuine identity column. Slow-changing (registration, type).
+  - AircraftState: one row per aircraft, overwritten on every position
+    update. Split out from Aircraft (rather than folding these columns
+    in) so the high-frequency writes here don't touch Aircraft's own
+    row or its indexes.
+  - PositionHistory: optional append-only log for track replay
+  - Favorite: replaces favorites_store.py's JSON file.
+"""
+
+from __future__ import annotations
+
+import datetime as dt
+
+from sqlalchemy import DateTime, Float, ForeignKey, Index, MetaData, String, func
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
 class Model(DeclarativeBase):
@@ -16,5 +32,73 @@ class Model(DeclarativeBase):
     )
 
 
-engine = create_engine(os.environ["DATABASE_URL"])
-Session = sessionmaker(engine)
+class Aircraft(Model):
+    __tablename__ = "aircraft"
+
+    hex: Mapped[str] = mapped_column(String(6), primary_key=True)
+    registration: Mapped[str | None] = mapped_column(String(16), index=True)
+    aircraft_type: Mapped[str | None] = mapped_column(String(8), index=True)
+    first_seen: Mapped[dt.datetime] = mapped_column(DateTime, server_default=func.now())
+    last_seen: Mapped[dt.datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+    state: Mapped[AircraftState | None] = relationship(
+        back_populates="aircraft", uselist=False, cascade="all, delete-orphan"
+    )
+    history: Mapped[list[PositionHistory]] = relationship(
+        back_populates="aircraft", cascade="all, delete-orphan"
+    )
+    favorite: Mapped[Favorite | None] = relationship(
+        back_populates="aircraft", uselist=False, cascade="all, delete-orphan"
+    )
+
+
+class AircraftState(Model):
+    __tablename__ = "aircraft_state"
+
+    hex: Mapped[str] = mapped_column(
+        ForeignKey("aircraft.hex", ondelete="CASCADE"), primary_key=True
+    )
+    callsign: Mapped[str | None] = mapped_column(String(8), index=True)
+    squawk: Mapped[str | None] = mapped_column(String(4), index=True)
+    latitude: Mapped[float | None] = mapped_column(Float)
+    longitude: Mapped[float | None] = mapped_column(Float)
+    altitude_baro: Mapped[float | None] = mapped_column(Float)
+    rate_baro: Mapped[float | None] = mapped_column(Float)
+    ground_speed: Mapped[float | None] = mapped_column(Float)
+    track: Mapped[float | None] = mapped_column(Float)
+    updated_at: Mapped[dt.datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+    aircraft: Mapped[Aircraft] = relationship(back_populates="state")
+
+
+class PositionHistory(Model):
+    """Optional. Skip this table (and the corresponding writes) entirely
+    if live state is needed, not a replayable track log."""
+
+    __tablename__ = "position_history"
+    __table_args__ = (Index("idx_history_hex_time", "hex", "recorded_at"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    hex: Mapped[str] = mapped_column(ForeignKey("aircraft.hex", ondelete="CASCADE"))
+    callsign: Mapped[str | None] = mapped_column(String(8))
+    squawk: Mapped[str | None] = mapped_column(String(4))
+    latitude: Mapped[float | None] = mapped_column(Float)
+    longitude: Mapped[float | None] = mapped_column(Float)
+    recorded_at: Mapped[dt.datetime] = mapped_column(DateTime, server_default=func.now())
+
+    aircraft: Mapped[Aircraft] = relationship(back_populates="history")
+
+
+class Favorite(Model):
+    __tablename__ = "favorites"
+
+    hex: Mapped[str] = mapped_column(
+        ForeignKey("aircraft.hex", ondelete="CASCADE"), primary_key=True
+    )
+    added_at: Mapped[dt.datetime] = mapped_column(DateTime, server_default=func.now())
+
+    aircraft: Mapped[Aircraft] = relationship(back_populates="favorite")
