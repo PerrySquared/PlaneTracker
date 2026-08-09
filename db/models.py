@@ -8,7 +8,8 @@ Layout:
     update. Split out from Aircraft (rather than folding these columns
     in) so the high-frequency writes here don't touch Aircraft's own
     row or its indexes.
-  - PositionHistory: optional append-only log for track replay
+  - PositionHistory: optional append-only log — only include this if
+    track replay is actually needed, not just "where is it right now."
   - Favorite: replaces favorites_store.py's JSON file.
 """
 
@@ -76,8 +77,10 @@ class AircraftState(Model):
 
 
 class PositionHistory(Model):
-    """Optional. Skip this table (and the corresponding writes) entirely
-    if live state is needed, not a replayable track log."""
+    """Append-only log backing the trail feature — one row per
+    position_history write (see db/upserts.py's record_position),
+    currently written once per favorites-poll cycle for each favorite
+    (see background_tasks.py)."""
 
     __tablename__ = "position_history"
     __table_args__ = (Index("idx_history_hex_time", "hex", "recorded_at"),)
@@ -88,6 +91,7 @@ class PositionHistory(Model):
     squawk: Mapped[str | None] = mapped_column(String(4))
     latitude: Mapped[float | None] = mapped_column(Float)
     longitude: Mapped[float | None] = mapped_column(Float)
+    altitude_baro: Mapped[float | None] = mapped_column(Float)
     recorded_at: Mapped[dt.datetime] = mapped_column(DateTime, server_default=func.now())
 
     aircraft: Mapped[Aircraft] = relationship(back_populates="history")
