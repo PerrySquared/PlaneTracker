@@ -12,3 +12,6 @@ test.py
 
 # Node modules
 gui/node_modules
+db/aircraft.db
+db/aircraft.db-shm
+db/aircraft.db-wal
