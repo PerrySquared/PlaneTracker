@@ -13,7 +13,7 @@ import logging
 from sqlalchemy import func, select
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
-from db.database import SessionLocal
+from db.database import get_session
 from db.models import Aircraft, Favorite
 
 log = logging.getLogger("aircraft-server")
@@ -24,44 +24,46 @@ class FavoritesStore:
         self.max_favorites = max_favorites
 
     async def list(self) -> list[str]:
-        async with SessionLocal() as session:
+        async with get_session() as session:
             result = await session.execute(select(Favorite.hex))
             return [row[0] for row in result.all()]
 
     async def add(self, hex_code: str) -> bool:
         hex_code = hex_code.lower()
-        async with SessionLocal() as session:
-            if await session.get(Favorite, hex_code):
-                return True
 
-            # session.scalar()'s return type is Optional[int] even for
-            # COUNT(*), which never actually returns NULL — the `or 0`
-            # satisfies the type checker without changing behavior.
-            count = await session.scalar(select(func.count()).select_from(Favorite)) or 0
-            if count >= self.max_favorites:
-                return False
+        try:
+            async with get_session() as session:
+                if await session.get(Favorite, hex_code):
+                    return True
 
-            # favorites.hex has a FK to aircraft.hex — make sure a row
-            # exists even if the aircraft hasn't actually broadcast yet,
-            # matching the old JSON store's behavior of allowing any hex
-            # code to be favorited up front.
-            aircraft_stmt = sqlite_insert(Aircraft).values(hex=hex_code)
-            aircraft_stmt = aircraft_stmt.on_conflict_do_nothing(index_elements=["hex"])
-            await session.execute(aircraft_stmt)
+                # session.scalar()'s return type is Optional[int] even for
+                # COUNT(*), which never actually returns NULL — the `or 0`
+                # satisfies the type checker without changing behavior.
+                count = (
+                    await session.scalar(select(func.count()).select_from(Favorite)) or 0
+                )
+                if count >= self.max_favorites:
+                    return False
 
-            session.add(Favorite(hex=hex_code))
-            try:
-                await session.commit()
-            except Exception:
-                log.exception("Could not add favorite %s", hex_code)
-                await session.rollback()
-                return False
+                # favorites.hex has a FK to aircraft.hex — make sure a row
+                # exists even if the aircraft hasn't actually broadcast yet,
+                # matching the old JSON store's behavior of allowing any hex
+                # code to be favorited up front.
+                aircraft_stmt = sqlite_insert(Aircraft).values(hex=hex_code)
+                aircraft_stmt = aircraft_stmt.on_conflict_do_nothing(
+                    index_elements=["hex"]
+                )
+                await session.execute(aircraft_stmt)
+
+                session.add(Favorite(hex=hex_code))
             return True
+        except Exception:
+            log.exception("Could not add favorite %s", hex_code)
+            return False
 
     async def remove(self, hex_code: str) -> None:
         hex_code = hex_code.lower()
-        async with SessionLocal() as session:
+        async with get_session() as session:
             fav = await session.get(Favorite, hex_code)
             if fav:
                 await session.delete(fav)
-                await session.commit()

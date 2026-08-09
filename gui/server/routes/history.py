@@ -12,7 +12,7 @@ import logging
 from fastapi import APIRouter, Query
 from sqlalchemy import select
 
-from db.database import SessionLocal
+from db.database import get_session
 from db.models import PositionHistory
 
 from ..config import FLIGHT_GAP_MINUTES, MAX_HISTORY_POINTS
@@ -28,7 +28,7 @@ async def get_history(
     hex_code: str, scope: str = Query("current", pattern="^(current|full)$")
 ):
     hex_code = hex_code.lower()
-    async with SessionLocal() as session:
+    async with get_session() as session:
         result = await session.execute(
             select(PositionHistory)
             .where(PositionHistory.hex == hex_code)

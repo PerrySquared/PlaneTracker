@@ -57,5 +57,13 @@ async def init_db() -> None:
 
 @asynccontextmanager
 async def get_session():
-    async with SessionLocal() as session:
+    """
+    One unit of work per call — commits automatically if the block
+    completes without raising, rolls back automatically if it doesn't.
+    That's SessionLocal.begin()'s built-in behavior, not custom logic
+    here. Callers should not call session.commit()/session.rollback()
+    themselves inside this — letting an exception propagate out of the
+    block is how to signal "discard this unit of work."
+    """
+    async with SessionLocal.begin() as session:
         yield session
