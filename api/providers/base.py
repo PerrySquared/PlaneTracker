@@ -11,6 +11,7 @@ class AircraftInformationBaseResponse(BaseModel):
     aircraft_type: str | None = None
     flags: int | None = None
     callsign: str | None = None
+    squawk: str | None = None
     latitude: float | None = None
     longitude: float | None = None
     altitude_baro: int | str | None = None

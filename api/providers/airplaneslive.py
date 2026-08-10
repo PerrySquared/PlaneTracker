@@ -111,6 +111,7 @@ class AircraftInformation(AircraftInformationBase):
             aircraft_type=r.get("t"),
             flags=r.get("dbFlags"),
             callsign=r.get("flight"),
+            squawk=r.get("squawk"),
             latitude=lat,
             longitude=lon,
             altitude_baro=r.get("alt_baro"),
