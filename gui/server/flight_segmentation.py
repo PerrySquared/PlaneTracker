@@ -93,7 +93,7 @@ def segment_flights(rows: Sequence[Any], gap_minutes: float) -> list[SegmentedPo
 
         prev_time = row.recorded_at
         # Carry the last-known callsign forward through gaps where it's
-        # missing, so a brief dropout doesn't itself look like a callsign
+        # missing, so a brief dropout doesn't look like a callsign
         # change once data resumes.
         prev_callsign = callsign or prev_callsign
 
