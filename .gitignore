@@ -15,3 +15,4 @@ gui/node_modules
 db/aircraft.db
 db/aircraft.db-shm
 db/aircraft.db-wal
+db/diagnose_history.py
