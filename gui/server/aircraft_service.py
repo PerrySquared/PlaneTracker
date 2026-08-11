@@ -9,6 +9,7 @@ calls the two functions defined here.
 """
 
 import logging
+import time
 from collections.abc import Iterable
 
 from api.aircraft_information_interface import AircraftInformationInterface
@@ -52,16 +53,48 @@ async def get_current_aircraft() -> Iterable:
 
 
 # ---------------------------------------------------------------------------
-# 1b. Search — thin wrapper around AircraftInformationInterface for a
-#     single field/value lookup. Backs both the explicit search route and
-#     (in batched form) the favorites polling in background_tasks.py.
+# 1b. The single choke point for every outbound call to aircraft_interface
+#     — both search_aircraft() (one value at a time, backing the explicit
+#     search route) and background_tasks.py's favorites poll (many hexes
+#     batched into one call) go through this, so logging/timing/error
+#     handling only needs to live in one place instead of being
+#     duplicated at each call site.
+# ---------------------------------------------------------------------------
+async def fetch_aircraft_data(search: list[str], api_endpoint_select: str) -> Iterable:
+    _require_interface()
+    start = time.monotonic()
+    log.info("API fetch start: field=%s values=%s", api_endpoint_select, search)
+    try:
+        results = await aircraft_interface.fetch_normalized_flight_data(
+            search=search, api_endpoint_select=api_endpoint_select
+        )
+    except Exception:
+        elapsed_ms = (time.monotonic() - start) * 1000
+        log.exception(
+            "API fetch FAILED after %.0fms: field=%s values=%s",
+            elapsed_ms,
+            api_endpoint_select,
+            search,
+        )
+        raise
+    elapsed_ms = (time.monotonic() - start) * 1000
+    log.info(
+        "API fetch OK in %.0fms: field=%s values=%s -> %d result(s)",
+        elapsed_ms,
+        api_endpoint_select,
+        search,
+        len(results),
+    )
+    return results
+
+
+# ---------------------------------------------------------------------------
+# 1c. Search — thin wrapper around fetch_aircraft_data for a single
+#     field/value lookup. Backs the explicit search route.
 # ---------------------------------------------------------------------------
 async def search_aircraft(field: str, value: str) -> Iterable:
     """
     `field` is one of "hex", "callsign", "reg", "type", "squawk" (already
     validated by the caller) and maps directly onto api_endpoint_select.
     """
-    _require_interface()
-    return await aircraft_interface.fetch_normalized_flight_data(
-        search=[value], api_endpoint_select=field
-    )
+    return await fetch_aircraft_data([value], field)

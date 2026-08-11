@@ -12,7 +12,7 @@ import logging
 from db.database import get_session
 from db.upserts import record_position, upsert_aircraft_state
 
-from .aircraft_service import aircraft_interface, get_current_aircraft
+from .aircraft_service import fetch_aircraft_data, get_current_aircraft
 from .config import BROADCAST_INTERVAL_SECONDS, FAVORITES_POLL_INTERVAL_SECONDS
 from .serialization import serialize_aircraft
 from .state import favorite_cache, favorite_cache_lock, favorites, manager
@@ -51,24 +51,23 @@ async def broadcast_loop():
 async def _fetch_favorite_states(fav_hexes: list[str]) -> dict[str, dict]:
     """
     Looks up every favorited hex in one call — fetch_normalized_flight_data()
-    takes `search` as a list, so N favorites costs 1 API call here, not N,
+    takes `search` as a list, so N favorites are combined into a single API call,
     as long as the provider's underlying endpoint actually honors a
     multi-value hex lookup in one request. If it doesn't (i.e. it only
-    honors the first value in the list), split this back into a per-hex
-    loop — worth checking against the actual provider before relying on
-    this.
+    honors the first value in the list), splits this back into a per-hex
+    loop.
 
     Returns {} — rather than raising — on any failure, since a failed
     poll should just mean "nothing fresh this cycle," not stop the loop.
     """
-    if not fav_hexes or aircraft_interface is None:
+    if not fav_hexes:
         return {}
     try:
-        results = await aircraft_interface.fetch_normalized_flight_data(
-            search=fav_hexes, api_endpoint_select="hex"
-        )
+        results = await fetch_aircraft_data(fav_hexes, "hex")
     except Exception:
-        log.exception("Favorites poll failed for hexes=%s", fav_hexes)
+        log.warning(
+            "Favorites poll got nothing this cycle (fetch failed) for hexes=%s", fav_hexes
+        )
         return {}
 
     fresh: dict[str, dict] = {}
