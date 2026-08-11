@@ -4,14 +4,6 @@ of consecutive points that plausibly belong to the same physical
 flight — so trails can be colored per-flight instead of drawing one
 undifferentiated line across everything ever recorded for a hex.
 
-A new flight starts when either:
-  - the callsign changes from the previous point (the common case: the
-    aircraft picked up a new callsign for its next leg), or
-  - the gap since the previous point exceeds `gap_minutes` (covers the
-    case where callsign happens to repeat, or is missing, but the
-    aircraft was clearly on the ground / out of range for a while in
-    between).
-
 Squawk is deliberately NOT used as a boundary signal: ATC reassigns
 squawk codes mid-flight routinely, so a squawk change alone doesn't
 mean a new flight — see the DB-structure discussion earlier in this
@@ -57,28 +49,52 @@ def segment_flights(rows: Sequence[Any], gap_minutes: float) -> list[SegmentedPo
     docstring for why).
     """
     segmented: list[SegmentedPoint] = []
-    flight_id = 0
+    flight_id = 1
     prev_callsign: str | None = None
     prev_time: dt.datetime | None = None
+    # True once the CURRENT flight has positively reported ground since
+    # it started (or since the last new-flight boundary). Reset to
+    # False every time a new flight begins.
+    landed_since_flight_start = False
 
     for row in rows:
         callsign = (row.callsign or "").strip() or None
+        altitude = row.altitude_baro
+        is_ground = altitude is not None and altitude == 0
+        # Require *positive* confirmation of a nonzero altitude to count
+        # as airborne - a missing/unknown altitude (None) is neither
+        # "still on the ground" nor "confirmed flying again", so it
+        # shouldn't itself end a grounded period.
+        is_airborne = altitude is not None and altitude != 0
         is_new_flight = False
 
-        if prev_time is None:
-            is_new_flight = True
-        else:
-            gap = (row.recorded_at - prev_time).total_seconds() / 60
-            if (
-                gap > gap_minutes
-                or callsign
-                and prev_callsign
-                and callsign != prev_callsign
-            ):
-                is_new_flight = True
+        if prev_time is not None:
+            if landed_since_flight_start:
+                # Already know this flight landed. From here, the ONLY
+                # thing that starts a new flight is taking off again -
+                # not a data gap or callsign change while still on the
+                # ground, since neither of those means it flew anywhere.
+                if is_airborne:
+                    is_new_flight = True
+            else:
+                # No confirmed landing yet for this flight - fall back
+                # to the old heuristics, the best available signal when
+                # there's no ground reading to anchor on.
+                gap = (row.recorded_at - prev_time).total_seconds() / 60
+                if (
+                    gap > gap_minutes
+                    or callsign
+                    and prev_callsign
+                    and callsign != prev_callsign
+                ):
+                    is_new_flight = True
 
         if is_new_flight:
             flight_id += 1
+            landed_since_flight_start = False
+
+        if is_ground:
+            landed_since_flight_start = True
 
         segmented.append(
             SegmentedPoint(

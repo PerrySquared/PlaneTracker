@@ -34,9 +34,31 @@ FAVORITES_POLL_INTERVAL_SECONDS = 60  # separate, slower cadence for the extra
 # timer is kept in sync with this value — see TRAIL_REFRESH_MS in
 # index.html.
 
-FLIGHT_GAP_MINUTES = 30  # gap after which two points are considered
-# different flights even if the callsign happens
-# to repeat (see flight_segmentation.py)
+FLIGHT_GAP_MINUTES = 30  # FALLBACK ONLY — used to decide flight
+# boundaries just for a flight that's never
+# been positively confirmed landed (transponder
+# went dark mid-flight, no ground reading ever
+# recorded). When a real ground signal WAS
+# seen, that's used instead: taking off again
+# is the boundary, regardless of gap length --
+# see flight_segmentation.py.
+
+CURRENT_FLIGHT_STALE_MINUTES = 180  # if a favorite's most recent recorded
+# position is older than this, /history?scope=current stops returning it
+# (an empty points list) even though it's technically still "the latest
+# flight on record". A plane silent for hours is far more likely
+# landed/transponder-off than mid-flight with a signal gap, and showing
+# its old trail under "Current flight" makes a finished flight look like
+# it's still happening. Deliberately much longer than both
+# FLIGHT_GAP_MINUTES (decides flight *boundaries*, not whether a flight
+# should still count as ongoing) and the frontend's marker-staleness
+# timeout (governs how fast a *live* marker visually dims, a
+# UI-responsiveness concern on a completely different timescale) — a
+# brief real signal gap ("an occasional transponder connection issue")
+# should not make an actually-ongoing flight's trail disappear, which is
+# exactly why this needs its own long threshold instead of reusing
+# either of those. scope=full is unaffected either way — an old flight
+# is still real history, just not "current".
 
 MAX_HISTORY_POINTS = 3000  # cap on points returned per /history
 # request. Keeps "full history" payloads bounded

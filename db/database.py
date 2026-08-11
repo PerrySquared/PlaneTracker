@@ -29,16 +29,15 @@ SessionLocal = async_sessionmaker(engine, expire_on_commit=False)
 @event.listens_for(Engine, "connect")
 def _enable_sqlite_pragmas(dbapi_connection, connection_record):
     """
-    SQLite ships with both of these off by default:
-      - foreign_keys=ON: without it, SQLite silently accepts an
-        aircraft_state/favorite row referencing a hex that doesn't
-        exist in aircraft — the ForeignKey() in models.py becomes
-        decoration, not a constraint, unless this is set per connection.
-      - journal_mode=WAL: lets background_tasks.py's writers (updating
-        aircraft_state every poll cycle) and FastAPI's readers (search,
-        favorites endpoints) hit the DB concurrently without blocking
-        each other on every single request the way SQLite's default
-        rollback-journal locking would.
+    - foreign_keys=ON: without it, SQLite silently accepts an
+      aircraft_state/favorite row referencing a hex that doesn't
+      exist in aircraft — the ForeignKey() in models.py becomes
+      decoration, not a constraint, unless this is set per connection.
+    - journal_mode=WAL: lets background_tasks.py's writers (updating
+      aircraft_state every poll cycle) and FastAPI's readers (search,
+      favorites endpoints) hit the DB concurrently without blocking
+      each other on every single request the way SQLite's default
+      rollback-journal locking would.
     """
     cursor = dbapi_connection.cursor()
     cursor.execute("PRAGMA foreign_keys=ON")

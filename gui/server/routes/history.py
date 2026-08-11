@@ -7,6 +7,7 @@ a hex that isn't/wasn't favorited just returns an empty points list,
 not an error.
 """
 
+import datetime as dt
 import logging
 
 from fastapi import APIRouter, Query
@@ -15,7 +16,7 @@ from sqlalchemy import select
 from db.database import get_session
 from db.models import PositionHistory
 
-from ..config import FLIGHT_GAP_MINUTES, MAX_HISTORY_POINTS
+from ..config import CURRENT_FLIGHT_STALE_MINUTES, FLIGHT_GAP_MINUTES, MAX_HISTORY_POINTS
 from ..flight_segmentation import latest_flight_only, segment_flights
 
 log = logging.getLogger("aircraft-server")
@@ -40,8 +41,19 @@ async def get_history(
         return {"hex": hex_code, "scope": scope, "points": []}
 
     segmented = segment_flights(rows, FLIGHT_GAP_MINUTES)
+
     if scope == "current":
         segmented = latest_flight_only(segmented)
+        if segmented:
+            age_minutes = (
+                dt.datetime.now(dt.UTC) - segmented[-1].recorded_at.replace(tzinfo=dt.UTC)
+            ).total_seconds() / 60
+            if age_minutes > CURRENT_FLIGHT_STALE_MINUTES:
+                # The most recent recorded flight is old enough to treat
+                # as landed/transponder-off rather than ongoing with a
+                # signal gap - don't surface it as "current". It's still
+                # there under scope=full, this only affects this branch.
+                segmented = []
 
     if len(segmented) > MAX_HISTORY_POINTS:
         segmented = segmented[-MAX_HISTORY_POINTS:]
