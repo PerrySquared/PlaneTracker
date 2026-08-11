@@ -1,0 +1,39 @@
+{
+  "name": "aircraft-tracker-desktop",
+  "version": "1.0.0",
+  "description": "Aircraft tracker — desktop app shell (Electron) around the FastAPI backend and globe.gl visualization",
+  "main": "main.js",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder"
+  },
+  "devDependencies": {
+    "electron": "^43.0.0",
+    "electron-builder": "^26.15.3"
+  },
+  "build": {
+    "appId": "com.example.aircrafttracker",
+    "productName": "Aircraft Tracker",
+    "files": [
+      "main.js",
+      "pythonServer.js",
+      "preload.js",
+      "index.html",
+      "globe.gl.min.js",
+      "world-geojson.js",
+      "server/**/*",
+      "!server/**/__pycache__/**",
+      "!server/**/*.pyc"
+    ],
+    "mac": {
+      "category": "public.app-category.utilities"
+    },
+    "win": {
+      "target": "nsis"
+    },
+    "linux": {
+      "target": "AppImage"
+    }
+  }
+}

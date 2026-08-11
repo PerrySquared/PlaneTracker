@@ -1,0 +1,1034 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Aircraft Tracker</title>
+<style>
+  :root {
+    --bg: #05070c;
+    --ocean: #0b1e33;
+    --land: #24334a;
+    --panel-bg: rgba(10, 14, 22, 0.86);
+    --panel-border: rgba(255, 255, 255, 0.09);
+    --text-primary: #e8edf5;
+    --text-dim: #8592a6;
+    --status-connecting: #f2b84b;
+    --status-connected: #5eead4;
+    --status-bad: #ef4444;
+    --mono: ui-monospace, "SF Mono", "Cascadia Code", "JetBrains Mono", Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; }
+
+  html, body {
+    margin: 0; padding: 0; width: 100%; height: 100%;
+    background: var(--bg); overflow: hidden;
+    font-family: var(--sans); color: var(--text-primary);
+  }
+
+  #globeViz { position: absolute; inset: 0; }
+
+  .hud {
+    position: absolute;
+    background: var(--panel-bg);
+    border: 1px solid var(--panel-border);
+    border-radius: 10px;
+    padding: 12px 16px;
+    backdrop-filter: blur(6px);
+    pointer-events: none;
+    z-index: 10;
+  }
+
+  .hud-top {
+    top: 16px; left: 16px;
+    display: flex; align-items: center; gap: 14px;
+  }
+  .hud-title {
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.12em;
+    color: var(--text-dim);
+  }
+  .hud-status { display: flex; align-items: center; gap: 6px; font-size: 12px; font-family: var(--mono); }
+  .status-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--status-connecting);
+    box-shadow: 0 0 6px currentColor;
+  }
+  .status-dot.status-connected { background: var(--status-connected); color: var(--status-connected); }
+  .status-dot.status-connecting { background: var(--status-connecting); color: var(--status-connecting); }
+  .status-dot.status-disconnected,
+  .status-dot.status-error { background: var(--status-bad); color: var(--status-bad); }
+  .hud-count { font-size: 12px; font-family: var(--mono); color: var(--text-dim); }
+  .hud-count span { color: var(--text-primary); font-weight: 600; }
+
+  .hud-legend {
+    bottom: 16px; left: 16px;
+    width: 220px;
+  }
+  .legend-title {
+    font-family: var(--mono); font-size: 10px; letter-spacing: 0.12em;
+    color: var(--text-dim); margin-bottom: 8px;
+  }
+  .legend-gradient {
+    height: 8px; border-radius: 4px;
+    background: linear-gradient(90deg,
+      rgb(148,163,184) 0%,
+      rgb(94,234,212) 20%,
+      rgb(74,222,128) 40%,
+      rgb(250,204,21) 60%,
+      rgb(251,146,60) 80%,
+      rgb(239,68,68) 100%);
+  }
+  .legend-labels {
+    display: flex; justify-content: space-between;
+    margin-top: 6px; font-size: 10px; font-family: var(--mono); color: var(--text-dim);
+  }
+
+  /* Aircraft marker: outer node is positioned by globe.gl, inner node owns rotation
+     so our transform never fights the library's own positioning transform. */
+  .plane-marker-outer { width: 24px; height: 24px; cursor: pointer; }
+  .plane-marker {
+    width: 100%; height: 100%;
+    transform-origin: 50% 50%;
+    transition: transform 0.4s linear;
+    filter: drop-shadow(0 0 2px rgba(0,0,0,0.75));
+  }
+  .plane-marker svg { width: 100%; height: 100%; overflow: visible; display: block; }
+  .plane-marker path { stroke: rgba(5,7,12,0.55); stroke-width: 1; }
+
+  .plane-tooltip {
+    position: fixed;
+    display: none;
+    z-index: 100;
+    background: var(--panel-bg);
+    border: 1px solid var(--panel-border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    font-family: var(--mono);
+    font-size: 11px;
+    min-width: 150px;
+    pointer-events: none;
+    backdrop-filter: blur(6px);
+  }
+  .tt-callsign { font-size: 13px; font-weight: 600; margin-bottom: 6px; letter-spacing: 0.03em; }
+  .tt-row { display: flex; justify-content: space-between; gap: 16px; color: var(--text-dim); }
+  .tt-row span:last-child { color: var(--text-primary); }
+  .tt-row.tt-stale span:last-child { color: #fb923c; }
+  .tt-hint { margin-top: 8px; padding-top: 6px; border-top: 1px solid var(--panel-border); color: var(--text-dim); font-size: 10px; }
+
+  .plane-marker.is-favorite path { stroke: #fbbf24; stroke-width: 2.5; }
+  .plane-marker.is-favorite { filter: drop-shadow(0 0 4px rgba(251,191,36,0.85)); }
+  /* Favorite whose transponder has gone quiet — frozen at its last known
+     position rather than removed (parked/off vs. actually gone are
+     indistinguishable from here, so this treats it as "might come back"
+     instead of assuming it's gone). Still keeps the gold favorite ring,
+     just dimmed, so it doesn't get mistaken for a plain non-favorite. */
+  .plane-marker.stale { opacity: 0.45; filter: grayscale(80%); }
+  .plane-marker.is-favorite.stale { filter: grayscale(70%) drop-shadow(0 0 3px rgba(251,191,36,0.5)); }
+
+  /* Search + favorites panels need real interaction, unlike the passive
+     status/legend overlays above. */
+  .hud.interactive { pointer-events: auto; }
+
+  .hud-search { top: 16px; right: 16px; width: 400px; }
+  .panel-title {
+    font-family: var(--mono); font-size: 10px; letter-spacing: 0.12em;
+    color: var(--text-dim); margin-bottom: 8px;
+  }
+  .search-row { display: flex; gap: 6px; }
+  .search-row select, .search-row input {
+    background: rgba(255,255,255,0.06);
+    border: 1px solid var(--panel-border);
+    border-radius: 6px;
+    color: var(--text-primary);
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 6px;
+  }
+  .search-row select { flex: 0 0 84px; }
+  .search-row input { flex: 1; min-width: 0; }
+  .search-row button {
+    flex: 0 0 auto;
+    background: rgba(94,234,212,0.15);
+    border: 1px solid rgba(94,234,212,0.4);
+    color: var(--status-connected);
+    border-radius: 6px;
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 6px 10px;
+    cursor: pointer;
+  }
+  .search-row button:hover { background: rgba(94,234,212,0.25); }
+  .search-status { font-size: 10px; color: var(--text-dim); margin-top: 6px; font-family: var(--mono); }
+  .search-results { margin-top: 8px; max-height: 220px; overflow-y: auto; }
+  .search-row-result, .fav-row {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 8px; padding: 6px 0; font-size: 11px; font-family: var(--mono);
+    border-bottom: 1px solid var(--panel-border);
+  }
+  .search-row-result:last-child, .fav-row:last-child { border-bottom: none; }
+  .search-row-result button, .fav-row button {
+    background: transparent; border: none; color: var(--text-dim);
+    cursor: pointer; font-size: 13px; padding: 2px 4px; line-height: 1;
+  }
+  .search-row-result button:hover, .fav-row button:hover { color: var(--text-primary); }
+  .search-row-result button:disabled { opacity: 0.3; cursor: not-allowed; }
+
+  .hud-favorites { bottom: 16px; right: 16px; width: 220px; }
+  .hud-favorites .panel-title span { color: var(--text-primary); font-weight: 600; }
+  .empty-hint { font-size: 11px; color: var(--text-dim); font-family: var(--mono); }
+  .fav-hint { font-size: 10px; color: var(--text-dim); font-family: var(--mono); margin-bottom: 6px; }
+
+  /* Scroll only the list itself, not the whole panel — so the trail
+     controls below it stay visible instead of scrolling out of view
+     when there are enough favorites to need scrolling. */
+  #favoritesList { max-height: 220px; overflow-y: auto; }
+
+  .fav-row { cursor: pointer; border-radius: 4px; padding-left: 4px; padding-right: 2px; }
+  .fav-row.selected { background: rgba(94,234,212,0.1); }
+  .fav-row.selected span:first-child { color: var(--status-connected); }
+
+  .trail-controls { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--panel-border); }
+  .trail-scope-row { display: flex; gap: 6px; }
+  .trail-scope-btn {
+    flex: 1;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid var(--panel-border);
+    color: var(--text-dim);
+    border-radius: 6px;
+    font-family: var(--mono);
+    font-size: 10px;
+    padding: 5px 6px;
+    cursor: pointer;
+  }
+  .trail-scope-btn.active {
+    background: rgba(94,234,212,0.15);
+    border-color: rgba(94,234,212,0.4);
+    color: var(--status-connected);
+  }
+  .trail-scope-btn:hover { color: var(--text-primary); }
+</style>
+</head>
+<body>
+
+<div id="globeViz"></div>
+
+<div class="hud hud-top">
+  <div class="hud-title">AIRCRAFT&nbsp;TRACKER</div>
+  <div class="hud-status">
+    <span id="statusDot" class="status-dot status-connecting"></span>
+    <span id="statusText">Connecting…</span>
+  </div>
+  <div class="hud-count"><span id="aircraftCount">0</span> aircraft</div>
+</div>
+
+<div class="hud hud-legend">
+  <div class="legend-title">ALTITUDE</div>
+  <div class="legend-gradient"></div>
+  <div class="legend-labels">
+    <span>Ground</span><span>15k ft</span><span>30k ft</span><span>40k+ ft</span>
+  </div>
+</div>
+
+<div class="hud hud-search interactive">
+  <div class="panel-title">SEARCH</div>
+  <div class="search-row">
+    <select id="searchField">
+      <option value="hex">Hex</option>
+      <option value="callsign">Callsign</option>
+      <option value="reg">Reg</option>
+      <option value="type">Type</option>
+      <option value="squawk">Squawk</option>
+    </select>
+    <input id="searchValue" type="text" placeholder="value…" autocomplete="off" />
+    <button id="searchBtn">Search</button>
+  </div>
+  <div id="searchStatus" class="search-status"></div>
+  <div id="searchResults" class="search-results"></div>
+</div>
+
+<div class="hud hud-favorites interactive">
+  <div class="panel-title">FAVORITES <span id="favCount">0/0</span></div>
+  <div class="fav-hint">Click a favorite to view its trail · Ctrl+click to select multiple</div>
+  <div id="favoritesList"></div>
+  <div id="trailControls" class="trail-controls" style="display:none;">
+    <div class="panel-title">TRAIL</div>
+    <div class="trail-scope-row">
+      <button id="trailScopeCurrent" class="trail-scope-btn">Current flight</button>
+      <button id="trailScopeFull" class="trail-scope-btn">Full history</button>
+    </div>
+  </div>
+</div>
+
+<!-- Vendored locally — no runtime calls to any external host. See the
+     chat writeup for how these were pulled from npm / Natural Earth. -->
+<script src="./globe.gl.min.js"></script>
+<script src="./world-geojson.js"></script>
+<script>
+// =====================================================================
+// Python server's WebSocket endpoint.
+// See server/main.py — it broadcasts JSON on this path.
+// =====================================================================
+const WS_URL = 'ws://localhost:8000/ws/aircraft';
+
+// Expected WebSocket message (see server/serialization.py's serialize_aircraft()):
+//   { "aircraft": [ { icao24, callsign, aircraft_type, latitude, longitude,
+//                      altitude_baro, rate_baro, ground_speed, track }, ... ] }
+// A bare JSON array (no wrapper object) is also accepted.
+const STALE_TIMEOUT_MS = 90000;   // no update for this long -> freeze
+// dead-reckoning and show as "stale" (dimmed, last-seen label). Applies to every aircraft;
+// only NON-favorites additionally get removed at this same threshold (see pruneStale()) -- a
+// favorite could simply be parked with its transponder off, so it's kept at its last known
+// position indefinitely rather than assumed gone.
+const RECONNECT_DELAY_MS = 3000;
+const INTERP_INTERVAL_MS = 200;   // how often to recompute dead-reckoned positions
+const PRUNE_INTERVAL_MS = 10000;
+
+// REST endpoints on the same server as WS_URL (search + favorites).
+// Leave blank for same-origin; set to e.g. 'http://localhost:8000' if the
+// frontend is ever served from somewhere other than the server package itself.
+const API_BASE = '';
+
+// ---------------------------------------------------------------------
+// Altitude -> color. Adjust stops/colors to taste; keep in sync with the
+// gradient in .legend-gradient above if changed.
+// ---------------------------------------------------------------------
+const ALT_STOPS = [
+  { ft: 0,     rgb: [148, 163, 184] }, // on ground / unknown
+  { ft: 10000, rgb: [94, 234, 212] },
+  { ft: 22000, rgb: [74, 222, 128] },
+  { ft: 30000, rgb: [250, 204, 21] },
+  { ft: 38000, rgb: [251, 146, 60] },
+  { ft: 45000, rgb: [239, 68, 68] },
+];
+
+function colorForAltitude(ft) {
+  if (ft == null || isNaN(ft)) return `rgb(${ALT_STOPS[0].rgb.join(',')})`;
+  const clamped = Math.max(0, Math.min(ft, ALT_STOPS[ALT_STOPS.length - 1].ft));
+  for (let i = 0; i < ALT_STOPS.length - 1; i++) {
+    const a = ALT_STOPS[i], b = ALT_STOPS[i + 1];
+    if (clamped >= a.ft && clamped <= b.ft) {
+      const t = (clamped - a.ft) / (b.ft - a.ft);
+      const c = a.rgb.map((v, idx) => Math.round(v + (b.rgb[idx] - v) * t));
+      return `rgb(${c[0]},${c[1]},${c[2]})`;
+    }
+  }
+  return `rgb(${ALT_STOPS[ALT_STOPS.length - 1].rgb.join(',')})`;
+}
+
+// ---------------------------------------------------------------------
+// Altitude exaggeration:
+//
+//   BASE_LIFT_GU
+//     Minimum lift for anything, even a 0ft point -- keeps ground-level
+//     markers/paths from visually clipping into the terrain.
+//   MAX_LIFT_GU
+//     Extra lift added on top of BASE_LIFT_GU at ALTITUDE_CEILING_FT.
+//     Main "how exaggerated does this look" knob -- smaller number =
+//     flatter, closer to surface.
+//   ALTITUDE_CEILING_FT
+//     Altitude at which MAX_LIFT_GU is fully reached; anything higher
+//     is clamped to same lift, not exaggerated further.
+//   PATH_LIFT_SCALE
+//     Trails apply this fraction of marker lift (BASE_LIFT_GU +
+//     MAX_LIFT_GU), so trail hugs closer to surface than live marker --
+//     legibility choice, not physical. 1 = same height, 0 = flush.
+// ---------------------------------------------------------------------
+const BASE_LIFT_GU = 0.0009;
+const MAX_LIFT_GU = 0.018;
+const ALTITUDE_CEILING_FT = 45000;
+const PATH_LIFT_SCALE = 0.45;
+
+function altitudeToGlobeUnits(ft, liftScale = 1) {
+  if (ft == null || isNaN(ft)) return BASE_LIFT_GU * liftScale;
+  const t = Math.min(Math.max(ft, 0), ALTITUDE_CEILING_FT) / ALTITUDE_CEILING_FT;
+  return (BASE_LIFT_GU + t * MAX_LIFT_GU) * liftScale;
+}
+
+// ---------------------------------------------------------------------
+// Globe setup: flat ocean color + vector country outlines (no raster
+// texture, so it stays crisp at any zoom instead of pixelating).
+// ---------------------------------------------------------------------
+const oceanImg = 'data:image/svg+xml;utf8,' + encodeURIComponent(
+  `<svg xmlns="http://www.w3.org/2000/svg" width="2" height="1"><rect width="2" height="1" fill="${getComputedColor('--ocean')}"/></svg>`
+);
+
+function getComputedColor(varName) {
+  // Resolve CSS var without depending on layout timing.
+  const fallback = { '--ocean': '#0b1e33', '--land': '#24334a' };
+  return fallback[varName];
+}
+
+const world = new Globe(document.getElementById('globeViz'))
+  .backgroundColor('#05070c')
+  .globeImageUrl(oceanImg)
+  .showAtmosphere(true)
+  .atmosphereColor('#3fa9f5')
+  .atmosphereAltitude(0.18)
+  .showGraticules(false);
+
+// WORLD_GEOJSON comes from the vendored world-geojson.js
+if (window.WORLD_GEOJSON && window.WORLD_GEOJSON.features) {
+  world.polygonsData(window.WORLD_GEOJSON.features)
+    .polygonCapColor(() => getComputedColor('--land'))
+    .polygonSideColor(() => 'rgba(0,0,0,0)')
+    .polygonStrokeColor(() => 'rgba(255,255,255,0.08)')
+    // Must stay below the smallest lift used by ANY marker or path point
+    // e.g. BASE_LIFT_GU * PATH_LIFT_SCALE = 0.009 * 0.45 = 0.00405
+    .polygonAltitude(0.0040)
+    .polygonsTransitionDuration(0);
+} else {
+  console.error('world-geojson.js did not load — landmass will be missing.');
+}
+
+window.addEventListener('resize', () => {
+  world.width(window.innerWidth).height(window.innerHeight);
+});
+
+// ---------------------------------------------------------------------
+// Aircraft markers (HTML overlay layer, not a WebGL mesh). 
+// Fine for tens to a few hundred aircraft; if needed to
+// render thousands at once, a WebGL objectsData layer would
+// scale better but is meaningfully more code.
+// ---------------------------------------------------------------------
+const aircraftMap = new Map(); // icao24 -> record
+
+world
+  .htmlElementsData([])
+  .htmlLat(d => d._displayLat)
+  .htmlLng(d => d._displayLng)
+  .htmlAltitude(d => altitudeToGlobeUnits(d.altitude_baro))
+  .htmlElement(d => buildPlaneMarkerEl(d))
+  .htmlTransitionDuration(0);
+
+// ---------------------------------------------------------------------
+// Trails (globe.gl's paths layer — separate from the HTML markers
+// above). Each entry in pathsData is one flight segment, not one
+// aircraft — a selected aircraft with 3 recorded flights becomes 3
+// separate path entries. Segments stay split by flight even though
+// color no longer depends on it (see pathColor below): joining two
+// flights into one continuous line would draw a straight line between
+// wherever flight 1 ended and flight 2 started (e.g. two different
+// airports), which is wrong regardless of coloring.
+//
+// pathColor returns one color per point (a gradient along the path,
+// not one flat color per segment) computed with the same
+// colorForAltitude() the markers use — so a trail's color at any point
+// means exactly what a marker's color means.
+// ---------------------------------------------------------------------
+world
+  .pathsData([])
+  .pathPoints('points')
+  .pathPointLat(p => p.latitude)
+  .pathPointLng(p => p.longitude)
+  .pathPointAlt(p => altitudeToGlobeUnits(p.altitude_baro, p._liftScale ?? PATH_LIFT_SCALE))
+  .pathColor(p => p.points.map(pt => colorForAltitude(pt.altitude_baro)))
+  .pathLabel(p => {
+    const cs = (p.points.find(pt => pt.callsign) || {}).callsign || p.hex;
+    return `<div>${cs} <span style="opacity:0.6">· flight ${p.flightId}</span></div>`;
+  })
+  .pathStroke(1.6)
+  .pathTransitionDuration(0);
+
+function buildPlaneMarkerEl(record) {
+  const outer = document.createElement('div');
+  outer.className = 'plane-marker-outer';
+
+  const inner = document.createElement('div');
+  inner.className = 'plane-marker';
+  inner.innerHTML = '<svg viewBox="0 0 24 24"><path d="M12 1 L18 20 L12 16 L6 20 Z"/></svg>';
+  outer.appendChild(inner);
+
+  outer.addEventListener('mouseenter', evt => showTooltip(record, evt));
+  outer.addEventListener('mousemove', positionTooltip);
+  outer.addEventListener('mouseleave', hideTooltip);
+  outer.addEventListener('click', () => {
+    const hex = (record.icao24 || '').toLowerCase();
+    const isFav = currentFavorites.has(hex);
+    if (!isFav && favoritesMax && currentFavorites.size >= favoritesMax) {
+      alert(`Favorites limit reached (${favoritesMax}).`);
+      return;
+    }
+    toggleFavorite(hex, !isFav);
+  });
+
+  record._el = inner; // target for rotation/color updates, decoupled from position
+  return outer;
+}
+
+function updateMarkerVisual(record) {
+  if (!record._el) return;
+  const path = record._el.querySelector('path');
+  if (path) path.setAttribute('fill', colorForAltitude(record.altitude_baro));
+  // 0deg = north in the icon's default orientation; CSS rotate() is clockwise,
+  // matching compass bearing directly. Markers are screen-space billboards,
+  // so this holds regardless of how the globe itself is rotated/tilted.
+  record._el.style.transform = `rotate(${record.track ?? 0}deg)`;
+  const isFav = !!record.is_favorite || currentFavorites.has((record.icao24 || '').toLowerCase());
+  record._el.classList.toggle('is-favorite', isFav);
+  const isStale = record._lastUpdate != null && (performance.now() - record._lastUpdate) > STALE_TIMEOUT_MS;
+  record._el.classList.toggle('stale', isStale);
+}
+
+function formatElapsed(ms) {
+  const totalSeconds = Math.round(ms / 1000);
+  if (totalSeconds < 60) return `${totalSeconds}s`;
+  const minutes = Math.floor(totalSeconds / 60);
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  return `${hours}h ${minutes % 60}m`;
+}
+
+// ---------------------------------------------------------------------
+// Tooltip
+// ---------------------------------------------------------------------
+let tooltipEl;
+function ensureTooltipEl() {
+  if (!tooltipEl) {
+    tooltipEl = document.createElement('div');
+    tooltipEl.className = 'plane-tooltip';
+    document.body.appendChild(tooltipEl);
+  }
+  return tooltipEl;
+}
+function showTooltip(record, evt) {
+  const el = ensureTooltipEl();
+  const alt = record.altitude_baro != null ? Math.round(record.altitude_baro).toLocaleString() + ' ft' : '—';
+  const spd = record.ground_speed != null ? Math.round(record.ground_speed) + ' kt' : '—';
+  const vs = record.rate_baro != null ? (record.rate_baro > 0 ? '+' : '') + Math.round(record.rate_baro) + ' fpm' : '—';
+  const hdg = record.track != null ? Math.round(record.track) + '°' : '—';
+  const isFav = !!record.is_favorite || currentFavorites.has((record.icao24 || '').toLowerCase());
+  const staleMs = record._lastUpdate != null ? performance.now() - record._lastUpdate : 0;
+  const isStale = staleMs > STALE_TIMEOUT_MS;
+  const staleRow = isStale
+    ? `<div class="tt-row tt-stale"><span>Last seen</span><span>${formatElapsed(staleMs)} ago</span></div>`
+    : '';
+  el.innerHTML = `
+    <div class="tt-callsign">${((record.callsign || record.icao24) || '').trim()}</div>
+    <div class="tt-row"><span>Reg</span><span>${record.registration || '—'}</span></div>
+    <div class="tt-row"><span>Type</span><span>${record.aircraft_type || '—'}</span></div>
+    <div class="tt-row"><span>Alt</span><span>${alt}</span></div>
+    <div class="tt-row"><span>Speed</span><span>${spd}</span></div>
+    <div class="tt-row"><span>V/S</span><span>${vs}</span></div>
+    <div class="tt-row"><span>Hdg</span><span>${hdg}</span></div>
+    ${staleRow}
+    <div class="tt-hint">Click marker to ${isFav ? 'remove' : 'add'} favorite</div>
+  `;
+  el.style.display = 'block';
+  positionTooltip(evt);
+}
+function positionTooltip(evt) {
+  if (!tooltipEl) return;
+  tooltipEl.style.left = (evt.clientX + 14) + 'px';
+  tooltipEl.style.top = (evt.clientY + 14) + 'px';
+}
+function hideTooltip() {
+  if (tooltipEl) tooltipEl.style.display = 'none';
+}
+
+// ---------------------------------------------------------------------
+// Dead-reckoning interpolation between WebSocket updates, so planes glide
+// instead of jumping. Anchored to the time this browser received the
+// update.
+// ---------------------------------------------------------------------
+const EARTH_RADIUS_NM = 3440.065;
+
+function extrapolatedPosition(record, nowMs) {
+  if (record.ground_speed == null || record.track == null || record._baseLat == null) {
+    return { lat: record._baseLat, lng: record._baseLng };
+  }
+  // Cap extrapolation at STALE_TIMEOUT_MS past the last real update --
+  // without this, a plane that lost signal mid-cruise would keep
+  // sliding along its last known track/speed forever (or until pruned).
+  const effectiveNowMs = Math.min(nowMs, record._lastUpdate + STALE_TIMEOUT_MS);
+  const elapsedHours = (effectiveNowMs - record._baseTime) / 3600000;
+  const distanceNm = record.ground_speed * elapsedHours;
+  const angularDist = distanceNm / EARTH_RADIUS_NM;
+  const bearingRad = (record.track * Math.PI) / 180;
+  const latRad = (record._baseLat * Math.PI) / 180;
+  const lngRad = (record._baseLng * Math.PI) / 180;
+
+  const newLatRad = Math.asin(
+    Math.sin(latRad) * Math.cos(angularDist) +
+    Math.cos(latRad) * Math.sin(angularDist) * Math.cos(bearingRad)
+  );
+  const newLngRad = lngRad + Math.atan2(
+    Math.sin(bearingRad) * Math.sin(angularDist) * Math.cos(latRad),
+    Math.cos(angularDist) - Math.sin(latRad) * Math.sin(newLatRad)
+  );
+
+  return {
+    lat: (newLatRad * 180) / Math.PI,
+    lng: (((newLngRad * 180) / Math.PI + 540) % 360) - 180,
+  };
+}
+
+// How long to smoothly blend the displayed marker into a newly-arrived
+// real position, rather than snapping to it instantly.
+const CORRECTION_MS = 800;
+const MAX_HOLD_MS = 3000; // safety valve: if the no-regression guard below
+// ever holds the marker for longer than this (e.g. a sharp track change
+// between updates makes the progress comparison unreliable), force the
+// update through rather than risk the marker getting stuck indefinitely.
+// Comfortably longer than CORRECTION_MS (so the normal smoothing case
+// never trips it) and comfortably shorter than the real update cadence.
+
+function progressAlongTrack(record, lat, lng) {
+  // Scalar "how far in the direction of travel" a point is, relative to
+  // record._baseLat/_baseLng, projected onto record.track's bearing.
+  // Only used to compare two points against the same base/track/time,
+  // never as an absolute distance, however it ignores true great-circle 
+  // geometry.
+  const bearingRad = (record.track * Math.PI) / 180;
+  const dLat = lat - record._baseLat;
+  const dLng = (lng - record._baseLng) * Math.cos((record._baseLat * Math.PI) / 180);
+  return dLat * Math.cos(bearingRad) + dLng * Math.sin(bearingRad);
+}
+
+function advancePosition(record, nowMs) {
+  const target = extrapolatedPosition(record, nowMs);
+
+  let candidateLat = target.lat;
+  let candidateLng = target.lng;
+
+  if (record._correctionStart != null) {
+    const t = Math.min((nowMs - record._correctionStart) / CORRECTION_MS, 1);
+    if (t < 1) {
+      candidateLat = record._correctionFromLat + (target.lat - record._correctionFromLat) * t;
+      candidateLng = record._correctionFromLng + (target.lng - record._correctionFromLng) * t;
+    }
+  }
+
+  // Never let the displayed position regress along the direction of
+  // travel -- if the candidate (blended or not) represents less
+  // progress than where the marker is already shown, hold position
+  // instead of visibly sliding backward. Runs every tick.
+  if (record._displayLat != null && record.track != null) {
+    const currentProgress = progressAlongTrack(record, record._displayLat, record._displayLng);
+    const candidateProgress = progressAlongTrack(record, candidateLat, candidateLng);
+    if (candidateProgress < currentProgress) {
+      if (record._holdSince == null) record._holdSince = nowMs;
+      if (nowMs - record._holdSince < MAX_HOLD_MS) {
+        return;
+      }
+      // Held too long -- force through rather than risk getting stuck.
+    } else {
+      record._holdSince = null;
+    }
+  }
+
+  record._displayLat = candidateLat;
+  record._displayLng = candidateLng;
+}
+
+function refreshPositions() {
+  const now = performance.now();
+  aircraftMap.forEach(record => advancePosition(record, now));
+  world.htmlElementsData(Array.from(aircraftMap.values()));
+  if (selectedTrails.size > 0) applyTrailsToGlobe();
+}
+setInterval(refreshPositions, INTERP_INTERVAL_MS);
+
+function pruneStale() {
+  const now = performance.now();
+  let changed = false;
+  aircraftMap.forEach((record, icao24) => {
+    const isFav = !!record.is_favorite || currentFavorites.has(icao24.toLowerCase());
+    const age = now - record._lastUpdate;
+    if (!isFav && age > STALE_TIMEOUT_MS) {
+      // Non-favorites are transient by design -- safe to actually drop.
+      aircraftMap.delete(icao24);
+      changed = true;
+    } else {
+      // Favorites never get removed just for going quiet -- updated here
+      // (rather than only on new data) so the dimmed/stale look and the
+      // tooltip's "last seen" line stay current while nothing is arriving.
+      updateMarkerVisual(record);
+    }
+  });
+  if (changed) world.htmlElementsData(Array.from(aircraftMap.values()));
+  document.getElementById('aircraftCount').textContent = aircraftMap.size;
+}
+setInterval(pruneStale, PRUNE_INTERVAL_MS);
+
+// ---------------------------------------------------------------------
+// WebSocket feed
+// ---------------------------------------------------------------------
+function upsertAircraft(a, now) {
+  if (a.icao24 == null || a.latitude == null || a.longitude == null) return;
+  const existing = aircraftMap.get(a.icao24);
+  const record = existing || { icao24: a.icao24 };
+
+  // Blend start point: wherever the marker is VISUALLY sitting right
+  // now (already advanced by prior dead reckoning), not the old base --
+  // that's the position the eye is tracking, so that's what a smooth
+  // correction needs to start from. A brand-new aircraft has nothing to
+  // blend from, so it just appears at the reported position directly.
+  const correctionFromLat = existing ? record._displayLat : a.latitude;
+  const correctionFromLng = existing ? record._displayLng : a.longitude;
+
+  Object.assign(record, a);
+  record._baseLat = a.latitude;
+  record._baseLng = a.longitude;
+  record._baseTime = now;
+  record._correctionFromLat = correctionFromLat;
+  record._correctionFromLng = correctionFromLng;
+  record._correctionStart = now;
+  record._lastUpdate = now;
+  if (!existing) {
+    record._displayLat = a.latitude;
+    record._displayLng = a.longitude;
+    aircraftMap.set(a.icao24, record);
+  }
+  updateMarkerVisual(record);
+}
+
+function updateStatus(state) {
+  const dot = document.getElementById('statusDot');
+  const text = document.getElementById('statusText');
+  dot.className = 'status-dot status-' + state;
+  const labels = {
+    connecting: 'Connecting…', connected: 'Live',
+    disconnected: 'Reconnecting…', error: 'Connection error',
+  };
+  text.textContent = labels[state] || state;
+}
+
+// ---------------------------------------------------------------------
+// Favorites — server-side list (see server/favorites_store.py), always polled by the
+// server regardless of what's currently visible here. This panel just
+// reads/writes that list via REST; the actual aircraft data for
+// favorites arrives through the normal WebSocket feed, tagged with
+// is_favorite: true.
+// ---------------------------------------------------------------------
+let currentFavorites = new Set();
+let favoritesMax = 0;
+
+async function refreshFavoritesList() {
+  try {
+    const res = await fetch(`${API_BASE}/favorites`);
+    const data = await res.json();
+    currentFavorites = new Set((data.favorites || []).map(h => h.toLowerCase()));
+    favoritesMax = data.max || 0;
+    renderFavoritesPanel();
+  } catch (e) {
+    console.error('Could not load favorites:', e);
+  }
+}
+
+function renderFavoritesPanel() {
+  document.getElementById('favCount').textContent = `${currentFavorites.size}/${favoritesMax}`;
+  const list = document.getElementById('favoritesList');
+  list.innerHTML = '';
+  if (currentFavorites.size === 0) {
+    list.innerHTML = '<div class="empty-hint">No favorites yet</div>';
+    renderTrailControls();
+    return;
+  }
+  currentFavorites.forEach(hex => {
+    const record = aircraftMap.get(hex);
+    const label = record ? (record.callsign || record.icao24 || hex).trim() : hex;
+    const row = document.createElement('div');
+    row.className = 'fav-row' + (selectedTrails.has(hex) ? ' selected' : '');
+    const span = document.createElement('span');
+    span.textContent = label;
+    row.appendChild(span);
+    row.addEventListener('click', evt => {
+      toggleTrailSelection(hex, evt.ctrlKey || evt.metaKey);
+    });
+    const removeBtn = document.createElement('button');
+    removeBtn.textContent = '×';
+    removeBtn.title = 'Remove favorite';
+    removeBtn.addEventListener('click', evt => {
+      evt.stopPropagation(); // don't also trigger the row's own select handler
+      toggleFavorite(hex, false);
+    });
+    row.appendChild(removeBtn);
+    list.appendChild(row);
+  });
+  renderTrailControls();
+}
+
+async function toggleFavorite(hex, add) {
+  hex = (hex || '').toLowerCase();
+  if (!hex) return;
+  try {
+    const res = await fetch(`${API_BASE}/favorites/${encodeURIComponent(hex)}`, { method: add ? 'POST' : 'DELETE' });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      alert(data.detail || 'Could not update favorites.');
+      return;
+    }
+    currentFavorites = new Set((data.favorites || []).map(h => h.toLowerCase()));
+    favoritesMax = data.max || favoritesMax;
+    if (!add) selectedTrails.delete(hex); // no trail for a plane that's no longer a favorite
+    renderFavoritesPanel();
+    renderSearchResults(lastSearchResults);
+    renderTrails();
+    const record = aircraftMap.get(hex);
+    if (record) { record.is_favorite = add; updateMarkerVisual(record); }
+  } catch (e) {
+    console.error('Favorite toggle failed:', e);
+  }
+}
+
+// ---------------------------------------------------------------------
+// Trails — fetches /history/{hex} for whichever favorites are selected
+// and renders each returned flight segment as its own path, colored by
+// altitude (see the pathColor setup above). Selection lives only in
+// this tab (not persisted server-side, unlike favorites themselves)
+// since it's a view preference, not tracking data.
+// ---------------------------------------------------------------------
+const TRAIL_REFRESH_MS = 60000; // matches the server's FAVORITES_POLL_INTERVAL_SECONDS
+// default — position_history only gains new rows
+// that often, so refreshing trails faster than this
+// would just refetch the same data.
+
+let selectedTrails = new Set(); // hex codes currently selected for trail display
+let trailScope = 'current'; // 'current' | 'full' — see /history's scope param
+
+function toggleTrailSelection(hex, additive) {
+  if (additive) {
+    if (selectedTrails.has(hex)) selectedTrails.delete(hex);
+    else selectedTrails.add(hex);
+  } else if (selectedTrails.size === 1 && selectedTrails.has(hex)) {
+    // Plain click on the only selected favorite deselects it, rather
+    // than being a no-op — gives a way to clear the trail without
+    // reaching for the (currently nonexistent) "clear" button.
+    selectedTrails.clear();
+  } else {
+    selectedTrails = new Set([hex]);
+  }
+  renderFavoritesPanel();
+  renderTrails();
+}
+
+function renderTrailControls() {
+  const controls = document.getElementById('trailControls');
+  controls.style.display = selectedTrails.size > 0 ? 'block' : 'none';
+  document.getElementById('trailScopeCurrent').classList.toggle('active', trailScope === 'current');
+  document.getElementById('trailScopeFull').classList.toggle('active', trailScope === 'full');
+}
+
+document.getElementById('trailScopeCurrent').addEventListener('click', () => {
+  trailScope = 'current';
+  renderTrailControls();
+  renderTrails();
+});
+document.getElementById('trailScopeFull').addEventListener('click', () => {
+  trailScope = 'full';
+  renderTrailControls();
+  renderTrails();
+});
+
+async function fetchHistory(hex, scope) {
+  const res = await fetch(`${API_BASE}/history/${encodeURIComponent(hex)}?scope=${scope}`);
+  if (!res.ok) throw new Error(`history request failed: ${res.status}`);
+  return res.json();
+}
+
+// trailSegments holds what /history last returned (refreshed on its own
+// slow cadence — see TRAIL_REFRESH_MS below, tied to how often
+// position_history actually gains new rows). applyTrailsToGlobe() is
+// what actually pushes to the globe, and runs far more often (every
+// interpolation tick, see refreshPositions()) so the tip of the most
+// recent flight can track the marker's own live/interpolated position
+// instead of lagging up to a full poll interval behind it. Without this
+// split, a trail's leading edge would visibly detach from the plane's
+// dot between DB refreshes.
+let trailSegments = [];
+
+async function renderTrails() {
+  if (selectedTrails.size === 0) {
+    trailSegments = [];
+    applyTrailsToGlobe();
+    return;
+  }
+  const paths = [];
+  await Promise.all(Array.from(selectedTrails).map(async hex => {
+    try {
+      const data = await fetchHistory(hex, trailScope);
+      const points = data.points || [];
+      // Split into one path entry per flight_id so each flight gets its
+      // own solid color rather than one line blending across all of them.
+      let current = null;
+      points.forEach(p => {
+        if (!current || current.flightId !== p.flight_id) {
+          current = { hex, flightId: p.flight_id, points: [], isLatestForHex: false };
+          paths.push(current);
+        }
+        current.points.push(p);
+      });
+      // The last segment pushed for this hex is chronologically the
+      // most recent flight (points arrive ordered by recorded_at) --
+      // that's the one whose tip should track the live position.
+      if (current) current.isLatestForHex = true;
+    } catch (e) {
+      console.error(`Could not load history for ${hex}:`, e);
+    }
+  }));
+  trailSegments = paths;
+  applyTrailsToGlobe();
+}
+
+function applyTrailsToGlobe() {
+  const rendered = trailSegments.map(segment => {
+    if (!segment.isLatestForHex) return segment;
+    const record = aircraftMap.get(segment.hex);
+    if (!record || record._displayLat == null || record._displayLng == null) return segment;
+    // Extend a copy (not the cached segment itself) with wherever the
+    // marker's own dead-reckoning currently has it -- same lat/lng the
+    // eye is already tracking, so the trail's leading edge and the dot
+    // never visibly disagree in POSITION. _liftScale: 1 does the same
+    // for HEIGHT specifically: the rest of the trail intentionally sits
+    // lower than markers (PATH_LIFT_SCALE, see pathPointAlt below), but
+    // this one point represents the exact same aircraft the marker is
+    // showing right now, so it should sit at exactly the marker's
+    // height, not the reduced trail height -- otherwise the dot visibly
+    // floats above (or below) where its own trail appears to end.
+    //
+    // This also means a freshly favorited plane with only one real
+    // DB-recorded point still draws a line immediately (1 recorded
+    // point + 1 live point = a renderable path), rather than needing to
+    // wait for a second poll cycle.
+    return {
+      ...segment,
+      points: [
+        ...segment.points,
+        {
+          latitude: record._displayLat,
+          longitude: record._displayLng,
+          altitude_baro: record.altitude_baro,
+          callsign: record.callsign,
+          flight_id: segment.flightId,
+          _liftScale: 1,
+        },
+      ],
+    };
+  });
+  // A path needs at least 2 points to draw a line -- drop any that
+  // still don't have enough even after the live-tip extension above
+  // (e.g. a favorite with zero DB history yet and no live fix either).
+  world.pathsData(rendered.filter(p => p.points.length >= 2));
+}
+
+setInterval(() => {
+  if (selectedTrails.size > 0) renderTrails();
+}, TRAIL_REFRESH_MS);
+
+// ---------------------------------------------------------------------
+// Search — explicit action only (button click or Enter). No search runs
+// on typing, to avoid API strain.
+// ---------------------------------------------------------------------
+let lastSearchResults = [];
+
+function renderSearchResults(results) {
+  const container = document.getElementById('searchResults');
+  container.innerHTML = '';
+  results.forEach(a => {
+    const hex = (a.icao24 || '').toLowerCase();
+    const isFav = currentFavorites.has(hex);
+    const row = document.createElement('div');
+    row.className = 'search-row-result';
+
+    const span = document.createElement('span');
+    span.textContent = (a.callsign || a.icao24 || '').trim() + (a.aircraft_type ? ` · ${a.aircraft_type}` : '');
+    row.appendChild(span);
+
+    const btnGroup = document.createElement('span');
+
+    const locateBtn = document.createElement('button');
+    locateBtn.textContent = '⌖';
+    locateBtn.title = 'Center on globe';
+    locateBtn.addEventListener('click', () => {
+      if (a.latitude != null && a.longitude != null) {
+        world.pointOfView({ lat: a.latitude, lng: a.longitude, altitude: 0.4 }, 1000);
+      }
+    });
+    btnGroup.appendChild(locateBtn);
+
+    const starBtn = document.createElement('button');
+    starBtn.textContent = isFav ? '★' : '☆';
+    starBtn.title = isFav ? 'Remove favorite' : 'Add favorite';
+    starBtn.disabled = !isFav && favoritesMax > 0 && currentFavorites.size >= favoritesMax;
+    starBtn.addEventListener('click', () => toggleFavorite(hex, !isFav));
+    btnGroup.appendChild(starBtn);
+
+    row.appendChild(btnGroup);
+    container.appendChild(row);
+  });
+}
+
+async function runSearch() {
+  const field = document.getElementById('searchField').value;
+  const value = document.getElementById('searchValue').value.trim();
+  const statusEl = document.getElementById('searchStatus');
+  if (!value) { statusEl.textContent = 'Enter a value first.'; return; }
+
+  statusEl.textContent = 'Searching…';
+  document.getElementById('searchResults').innerHTML = '';
+
+  try {
+    const res = await fetch(`${API_BASE}/search/${encodeURIComponent(field)}/${encodeURIComponent(value)}`);
+    const data = await res.json();
+    if (!res.ok) {
+      statusEl.textContent = data.detail || 'Search failed.';
+      return;
+    }
+    lastSearchResults = data.results || [];
+    statusEl.textContent = lastSearchResults.length ? `${lastSearchResults.length} result(s)` : 'No results.';
+    renderSearchResults(lastSearchResults);
+
+    // Show found aircraft on the globe right away, same as a live update.
+    const now = performance.now();
+    lastSearchResults.forEach(a => upsertAircraft(a, now));
+    world.htmlElementsData(Array.from(aircraftMap.values()));
+  } catch (e) {
+    console.error('Search error:', e);
+    statusEl.textContent = 'Search request failed.';
+  }
+}
+
+document.getElementById('searchBtn').addEventListener('click', runSearch);
+document.getElementById('searchValue').addEventListener('keydown', evt => {
+  if (evt.key === 'Enter') runSearch(); // still an explicit user action
+});
+
+refreshFavoritesList();
+
+let ws;
+let reconnectTimer;
+function connect() {
+  updateStatus('connecting');
+  try {
+    ws = new WebSocket(WS_URL);
+  } catch (e) {
+    console.error('Could not open WebSocket:', e);
+    updateStatus('error');
+    scheduleReconnect();
+    return;
+  }
+  ws.onopen = () => { updateStatus('connected'); clearTimeout(reconnectTimer); };
+  ws.onclose = () => { updateStatus('disconnected'); scheduleReconnect(); };
+  ws.onerror = () => { updateStatus('error'); };
+  ws.onmessage = evt => {
+    let payload;
+    try { payload = JSON.parse(evt.data); } catch (e) { console.error('Bad WS payload:', e); return; }
+    const list = Array.isArray(payload) ? payload : (payload.aircraft || []);
+    const now = performance.now();
+    list.forEach(a => upsertAircraft(a, now));
+    world.htmlElementsData(Array.from(aircraftMap.values()));
+    document.getElementById('aircraftCount').textContent = aircraftMap.size;
+  };
+}
+function scheduleReconnect() {
+  clearTimeout(reconnectTimer);
+  reconnectTimer = setTimeout(connect, RECONNECT_DELAY_MS);
+}
+connect();
+</script>
+</body>
+</html>
