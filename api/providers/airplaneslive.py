@@ -1,4 +1,5 @@
 from http import HTTPStatus
+from typing import ClassVar
 
 import aiohttp
 from aiohttp import ClientTimeout
@@ -11,6 +12,10 @@ class AircraftInformation(AircraftInformationBase):
     TIMEOUT = ClientTimeout(total=10)
     BASE_URL = "https://api.airplanes.live/v2"
     SOURCE = "airplanes.live"
+    HEADERS: ClassVar = {
+        "User-Agent": "PlaneTracker/1.0",
+        "Accept": "application/json",
+    }
 
     def normalize_response(
         self, raw_response: dict
@@ -47,7 +52,9 @@ class AircraftInformation(AircraftInformationBase):
         """Send the request, raising AircraftFetchError on any transport-level failure."""
 
         try:
-            async with aiohttp.ClientSession(timeout=self.TIMEOUT) as session:
+            async with aiohttp.ClientSession(
+                timeout=self.TIMEOUT, headers=self.HEADERS
+            ) as session:
                 return await session.get(url)
 
         except TimeoutError:
