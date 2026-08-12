@@ -337,15 +337,14 @@ function colorForAltitude(ft) {
 //     MAX_LIFT_GU), so trail hugs closer to surface than live marker --
 //     legibility choice, not physical. 1 = same height, 0 = flush.
 // ---------------------------------------------------------------------
-const BASE_LIFT_GU = 0.009;
+const BASE_LIFT_GU = 0.008;
 const MAX_LIFT_GU = 0.018;
 const ALTITUDE_CEILING_FT = 45000;
-const PATH_LIFT_SCALE = 0.45;
 
-function altitudeToGlobeUnits(ft, liftScale = 1) {
-  if (ft == null || isNaN(ft)) return BASE_LIFT_GU * liftScale;
+function altitudeToGlobeUnits(ft) {
+  if (ft == null || isNaN(ft)) return BASE_LIFT_GU;
   const t = Math.min(Math.max(ft, 0), ALTITUDE_CEILING_FT) / ALTITUDE_CEILING_FT;
-  return (BASE_LIFT_GU + t * MAX_LIFT_GU) * liftScale;
+  return BASE_LIFT_GU + t * MAX_LIFT_GU;
 }
 
 // ---------------------------------------------------------------------
@@ -424,7 +423,7 @@ world
   .pathPoints('points')
   .pathPointLat(p => p.latitude)
   .pathPointLng(p => p.longitude)
-  .pathPointAlt(p => altitudeToGlobeUnits(p.altitude_baro, p._liftScale ?? PATH_LIFT_SCALE))
+  .pathPointAlt(p => altitudeToGlobeUnits(p.altitude_baro))
   .pathColor(p => p.points.map(pt => colorForAltitude(pt.altitude_baro)))
   .pathLabel(p => {
     const cs = (p.points.find(pt => pt.callsign) || {}).callsign || p.hex;
@@ -904,7 +903,6 @@ function applyTrailsToGlobe() {
           altitude_baro: record.altitude_baro,
           callsign: record.callsign,
           flight_id: segment.flightId,
-          _liftScale: 1,
         },
       ],
     };
