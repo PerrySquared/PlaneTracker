@@ -19,12 +19,12 @@ class TokenManager:
         self.token = None
         self.expires_at = None
 
-    def get_token(self):
+    async def get_token(self):
         """Return a valid access token, refreshing automatically if needed."""
 
         if self.token and self.expires_at and dt.datetime.now(dt.UTC) < self.expires_at:
             return self.token
-        return self._refresh()
+        return await self._refresh()
 
     async def _request_token(self):
         """Fetch the acces token from the auth server."""
@@ -58,18 +58,7 @@ class TokenManager:
         response = await self._request_token()
         return await self._parse_token(response)
 
-    def headers(self):
+    async def headers(self):
         """Return request headers with a valid Bearer token."""
 
-        return {"Authorization": f"Bearer {self.get_token()}"}
-
-
-# Create a single shared instance for your script.
-# tokens = TokenManager()
-
-# Use it for any API call - the token is refreshed automatically.
-# response = requests.get(
-#     "https://opensky-network.org/api/states/all",
-#     headers=tokens.headers(),
-# )
-# print(response.json())
+        return {"Authorization": f"Bearer {await self.get_token()}"}

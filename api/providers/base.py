@@ -14,7 +14,7 @@ class AircraftInformationBaseResponse(BaseModel):
     squawk: str | None = None
     latitude: float | None = None
     longitude: float | None = None
-    altitude_baro: int | str | None = None
+    altitude_baro: float | str | None = None
     rate_baro: float | None = None
     ground_speed: float | None = None
     track: float | None = None
@@ -25,6 +25,9 @@ class AircraftInformationBaseResponse(BaseModel):
 class AircraftInformationBase(ABC):
     BASE_URL: str
     SOURCE: str
+
+    def __init__(self, token_manager):
+        self.token_manager = token_manager
 
     @abstractmethod
     async def fetch_data(self, values: list[str], path: str | None) -> dict: ...

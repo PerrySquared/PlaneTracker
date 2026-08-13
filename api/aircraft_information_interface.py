@@ -15,10 +15,12 @@ class AircraftInformationInterface:
         last_error = None
         for provider in self.providers:
             try:
+                print(f"Searching for {search} at {api_endpoint_select} with {provider}")
                 raw_response = await provider.fetch_data(search, api_endpoint_select)
                 return provider.normalize_response(raw_response)
             except AircraftSourceError as e:
                 last_error = e
+                print(f"Soft fail:{last_error}")
                 continue  # try next provider
 
         raise AircraftFetchError(f"All providers failed. Last error: {last_error}")

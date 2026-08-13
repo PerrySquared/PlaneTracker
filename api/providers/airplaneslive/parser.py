@@ -1,5 +1,4 @@
 from http import HTTPStatus
-from typing import ClassVar
 
 import aiohttp
 from aiohttp import ClientTimeout
@@ -12,10 +11,12 @@ class AircraftInformation(AircraftInformationBase):
     TIMEOUT = ClientTimeout(total=10)
     BASE_URL = "https://api.airplanes.live/v2"
     SOURCE = "airplanes.live"
-    HEADERS: ClassVar = {
-        "User-Agent": "PlaneTracker",
-        "Accept": "application/json",
-    }
+
+    def __init__(self, token_manager: None = None):
+        self.HEADERS = {
+            "User-Agent": "PlaneTracker",
+            "Accept": "application/json",
+        }
 
     def normalize_response(
         self, raw_response: dict
@@ -23,7 +24,6 @@ class AircraftInformation(AircraftInformationBase):
         """Normalize data from a fetch into a list of AircraftInformationBase instances."""
 
         r_list = raw_response.get("ac", [])  # access the AirCrafts part of a response
-
         return [self._parse_one_response(r) for r in r_list]
 
     async def fetch_data(self, values: list[str], path: str | None = "hex") -> dict:
@@ -43,35 +43,33 @@ class AircraftInformation(AircraftInformationBase):
         """
 
         path = path or "hex"
-
         url = f"{self.BASE_URL}/{path}/{','.join(values)}"
-        response = await self._request(url)
-        return await self._get_json(response)
 
-    async def _request(self, url: str) -> aiohttp.ClientResponse:
+        return await self._request(url)
+
+    async def _request(self, url: str) -> dict:
         """Send the request, raising AircraftFetchError on any transport-level failure."""
 
         try:
-            async with aiohttp.ClientSession(
-                timeout=self.TIMEOUT, headers=self.HEADERS
-            ) as session:
-                return await session.get(url)
+            async with (
+                aiohttp.ClientSession(
+                    timeout=self.TIMEOUT,
+                    headers=self.HEADERS,
+                ) as session,
+                session.get(url) as response,
+            ):
+                if response.status != HTTPStatus.OK:
+                    body = await response.text()
+                    raise AircraftFetchError(
+                        f"HTTP {response.status} from {self.SOURCE}: {body}"
+                    )
+
+                return await response.json()
 
         except TimeoutError:
             raise AircraftFetchError(f"{self.SOURCE} request timed out")
         except aiohttp.ClientError as e:
             raise AircraftFetchError(f"{self.SOURCE} connection error: {e}")
-
-    async def _get_json(self, response: aiohttp.ClientResponse) -> dict:
-        """Validate status and parse the body, raising AircraftFetchError on failure."""
-
-        if response.status != HTTPStatus.OK:
-            raise AircraftFetchError(f"HTTP {response.status} from {self.SOURCE}")
-        try:
-            return await response.json()
-
-        except aiohttp.ContentTypeError:
-            raise AircraftFetchError(f"{self.SOURCE} returned non-JSON response")
 
     def _parse_one_response(
         self, response_aircraft: dict
