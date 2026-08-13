@@ -13,7 +13,7 @@ class AircraftInformation(AircraftInformationBase):
     BASE_URL = "https://api.airplanes.live/v2"
     SOURCE = "airplanes.live"
     HEADERS: ClassVar = {
-        "User-Agent": "PlaneTracker/1.0",
+        "User-Agent": "PlaneTracker",
         "Accept": "application/json",
     }
 
