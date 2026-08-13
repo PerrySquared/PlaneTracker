@@ -63,6 +63,19 @@
   .status-dot.status-error { background: var(--status-bad); color: var(--status-bad); }
   .hud-count { font-size: 12px; font-family: var(--mono); color: var(--text-dim); }
   .hud-count span { color: var(--text-primary); font-weight: 600; }
+  .airport-toggle {
+    background: rgba(255,255,255,0.06);
+    border: 1px solid var(--panel-border);
+    color: var(--text-dim);
+    border-radius: 6px;
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 4px 10px;
+    cursor: pointer;
+    pointer-events: auto;
+  }
+  .airport-toggle.active { background: rgba(147,197,253,0.18); border-color: rgba(147,197,253,0.5); color: #93c5fd; }
+  .airport-toggle:hover { color: var(--text-primary); }
 
   .hud-legend {
     bottom: 16px; left: 16px;
@@ -223,6 +236,7 @@
     <span id="statusText">Connecting…</span>
   </div>
   <div class="hud-count"><span id="aircraftCount">0</span> aircraft</div>
+  <button id="airportToggle" class="airport-toggle">Airports</button>
 </div>
 
 <div class="hud hud-legend">
@@ -267,6 +281,7 @@
      chat writeup for how these were pulled from npm / Natural Earth. -->
 <script src="./globe.gl.min.js"></script>
 <script src="./world-geojson.js"></script>
+<script src="./airports.js"></script>
 <script>
 // =====================================================================
 // Python server's WebSocket endpoint.
@@ -375,13 +390,65 @@ if (window.WORLD_GEOJSON && window.WORLD_GEOJSON.features) {
     .polygonCapColor(() => getComputedColor('--land'))
     .polygonSideColor(() => 'rgba(0,0,0,0)')
     .polygonStrokeColor(() => 'rgba(255,255,255,0.08)')
-    // Must stay below the smallest lift used by ANY marker or path point
-    // e.g. BASE_LIFT_GU * PATH_LIFT_SCALE = 0.009 * 0.45 = 0.00405
-    .polygonAltitude(0.0040)
+    .polygonAltitude(0.004)
     .polygonsTransitionDuration(0);
 } else {
   console.error('world-geojson.js did not load — landmass will be missing.');
 }
+
+// ---------------------------------------------------------------------
+// Airports — a separate globe.gl "points" layer (WebGL-rendered, unlike
+// the plane markers' DOM-based htmlElements layer), since a few
+// thousand static points render far cheaper this way.
+// ---------------------------------------------------------------------
+const AIRPORT_ALT_GU = 0.005; // sits above polygonAltitude (0.004) so
+// airport points don't clip into the terrain the same way markers/paths would
+// at that altitude.
+let airportsVisible = false;
+let airportsLayerFailed = false;
+
+try {
+  world
+    .pointsData([])
+    .pointLat('lat')
+    .pointLng('lon')
+    .pointAltitude(AIRPORT_ALT_GU)
+    .pointRadius(d => (d.type === 'large' ? 0.18 : 0.10))
+    .pointColor(() => 'rgba(147,197,253,0.85)')
+    .pointResolution(6)
+    .pointLabel(d => {
+      const codes = [d.icao, d.iata].filter(Boolean).join(' / ');
+      return `<div>${d.name}${codes ? ` (${codes})` : ''}</div>`;
+    })
+    .pointsTransitionDuration(0);
+} catch (e) {
+  // If ANYTHING above throws (wrong method name, unexpected globe.gl
+  // version, etc.), this used to silently abort the rest of the
+  // script -- including the button wiring below.
+  airportsLayerFailed = true;
+  console.error('Airports layer setup failed:', e);
+}
+
+const airportToggleBtn = document.getElementById('airportToggle');
+airportToggleBtn.addEventListener('click', () => {
+  if (airportsLayerFailed) {
+    console.error('Airports layer failed to initialize earlier -- see the error above. Toggle disabled.');
+    return;
+  }
+  airportsVisible = !airportsVisible;
+  airportToggleBtn.classList.toggle('active', airportsVisible);
+  if (airportsVisible && !(window.AIRPORTS && window.AIRPORTS.length)) {
+    console.error('airports.js did not load — no airport data to show.');
+    airportsVisible = false;
+    airportToggleBtn.classList.remove('active');
+    return;
+  }
+  try {
+    world.pointsData(airportsVisible ? window.AIRPORTS : []);
+  } catch (e) {
+    console.error('Failed to update airport points:', e);
+  }
+});
 
 window.addEventListener('resize', () => {
   world.width(window.innerWidth).height(window.innerHeight);

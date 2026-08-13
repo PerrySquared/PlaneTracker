@@ -8,7 +8,7 @@ some other way — the WebSocket endpoint doesn't depend on it.
 from fastapi import APIRouter
 from fastapi.responses import FileResponse
 
-from ..config import GEOJSON_JS_PATH, GLOBE_JS_PATH, INDEX_PATH
+from ..config import AIRPORTS_JS_PATH, GEOJSON_JS_PATH, GLOBE_JS_PATH, INDEX_PATH
 
 router = APIRouter(include_in_schema=False)
 
@@ -28,3 +28,8 @@ async def globe_js():
 @router.get("/world-geojson.js")
 async def world_geojson_js():
     return FileResponse(GEOJSON_JS_PATH, media_type="application/javascript")
+
+
+@router.get("/airports.js")
+async def airports_js():
+    return FileResponse(AIRPORTS_JS_PATH, media_type="application/javascript")

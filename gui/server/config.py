@@ -72,3 +72,4 @@ STATIC_DIR = Path(__file__).resolve().parent.parent
 INDEX_PATH = STATIC_DIR / "index.html"
 GLOBE_JS_PATH = STATIC_DIR / "globe.gl.min.js"
 GEOJSON_JS_PATH = STATIC_DIR / "world-geojson.js"
+AIRPORTS_JS_PATH = STATIC_DIR / "airports.js"
