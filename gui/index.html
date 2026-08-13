@@ -413,7 +413,7 @@ try {
     .pointLat('lat')
     .pointLng('lon')
     .pointAltitude(AIRPORT_ALT_GU)
-    .pointRadius(d => (d.type === 'large' ? 0.18 : 0.10))
+    .pointRadius(d => (d.type === 'large' ? 0.08 : 0.02))
     .pointColor(() => 'rgba(147,197,253,0.85)')
     .pointResolution(6)
     .pointLabel(d => {
