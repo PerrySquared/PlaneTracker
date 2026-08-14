@@ -236,7 +236,7 @@
     <span id="statusText">Connecting…</span>
   </div>
   <div class="hud-count"><span id="aircraftCount">0</span> aircraft</div>
-  <button id="airportToggle" class="airport-toggle">Airports</button>
+  <button id="airportToggle" class="airport-toggle active">Airports</button>
 </div>
 
 <div class="hud hud-legend">
@@ -404,12 +404,12 @@ if (window.WORLD_GEOJSON && window.WORLD_GEOJSON.features) {
 const AIRPORT_ALT_GU = 0.005; // sits above polygonAltitude (0.004) so
 // airport points don't clip into the terrain the same way markers/paths would
 // at that altitude.
-let airportsVisible = false;
+let airportsVisible = true;
 let airportsLayerFailed = false;
 
 try {
   world
-    .pointsData([])
+    .pointsData(window.AIRPORTS || [])
     .pointLat('lat')
     .pointLng('lon')
     .pointAltitude(AIRPORT_ALT_GU)
