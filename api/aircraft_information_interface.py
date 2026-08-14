@@ -20,7 +20,7 @@ class AircraftInformationInterface:
                 return provider.normalize_response(raw_response)
             except AircraftSourceError as e:
                 last_error = e
-                print(f"Soft fail:{last_error}")
+                print(f"Soft Fail: {last_error}")
                 continue  # try next provider
 
         raise AircraftFetchError(f"All providers failed. Last error: {last_error}")
