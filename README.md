@@ -1,6 +1,6 @@
 # PlaneTracker
 
-![PlaneTracker]()
+<img width="1248" height="741" alt="image" src="https://github.com/user-attachments/assets/225447d5-176d-4029-a8eb-20e1c9639ccc" />
 
 A real-time aircraft tracking application that displays live flight data on an interactive 3D globe. PlaneTracker integrates multiple aviation data providers and features a database to keep fetched data for favorited aircrafts.
 
@@ -8,7 +8,7 @@ A real-time aircraft tracking application that displays live flight data on an i
 
 - **Real-time Aircraft Tracking**: Live position updates with multiple provider support and automatic fallback
 - **Interactive 3D Globe**: Globe.gl-powered visualization
-- **Search & Discovery**: Query aircraft by hex code, call sign, or registration (depends on provider's api)
+- **Search & Discovery**: Query aircraft by hex code, call sign, or registration (depends on a provider's API)
 - **Favorites Management**: Save and monitor specific aircrafts with persistent storage
 - **Flight History**: Track aircraft position history over time
 
