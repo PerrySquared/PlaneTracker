@@ -199,7 +199,34 @@
   /* Scroll only the list itself, not the whole panel — so the trail
      controls below it stay visible instead of scrolling out of view
      when there are enough favorites to need scrolling. */
-  #favoritesList { max-height: 220px; overflow-y: auto; }
+  #favoritesList {
+  max-height: 220px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,0.18) transparent;
+  scrollbar-gutter: stable;
+}
+
+#favoritesList::-webkit-scrollbar {
+  width: 6px;
+}
+
+#favoritesList::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+#favoritesList::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,0.16);
+  border-radius: 999px;
+}
+
+#favoritesList::-webkit-scrollbar-thumb:hover {
+  background: rgba(94,234,212,0.35);
+}
+
+#favoritesList::-webkit-scrollbar-thumb:active {
+  background: rgba(94,234,212,0.5);
+}
 
   .fav-row { cursor: pointer; border-radius: 4px; padding-left: 4px; padding-right: 2px; }
   .fav-row.selected { background: rgba(94,234,212,0.1); }
