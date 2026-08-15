@@ -13,6 +13,7 @@ class AircraftInformation(AircraftInformationBase):
     TIMEOUT = ClientTimeout(total=15)
     BASE_URL = "https://opensky-network.org/api"
     SOURCE = "opensky-network.org"
+    SUPPORTED_ENDPOINTS = ("hex",)
 
     def __init__(self, token_manager: TokenManager):
         self.token_manager = token_manager

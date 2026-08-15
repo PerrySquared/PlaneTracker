@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from typing import ClassVar
 
 from pydantic import BaseModel
 
@@ -25,6 +26,8 @@ class AircraftInformationBaseResponse(BaseModel):
 class AircraftInformationBase(ABC):
     BASE_URL: str
     SOURCE: str
+    # None means every endpoint used by the UI is available
+    SUPPORTED_ENDPOINTS: ClassVar[tuple[str, ...] | None]
 
     def __init__(self, token_manager):
         self.token_manager = token_manager

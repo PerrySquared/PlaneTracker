@@ -146,7 +146,7 @@
      status/legend overlays above. */
   .hud.interactive { pointer-events: auto; }
 
-  .hud-search { top: 16px; right: 16px; width: 400px; }
+  .hud-search { top: 16px; right: 16px; width: 500px; }
   .panel-title {
     font-family: var(--mono); font-size: 10px; letter-spacing: 0.12em;
     color: var(--text-dim); margin-bottom: 8px;
@@ -162,7 +162,8 @@
     padding: 6px;
   }
   .search-row select { flex: 0 0 84px; }
-  .search-row input { flex: 1; min-width: 0; }
+  #searchProvider { flex: 0 0 76px; }
+  .search-row input { flex: 1 1 0; min-width: 50; }
   .search-row button {
     flex: 0 0 auto;
     background: rgba(94,234,212,0.15);
@@ -250,6 +251,9 @@
 <div class="hud hud-search interactive">
   <div class="panel-title">SEARCH</div>
   <div class="search-row">
+    <select id="searchProvider">
+      <option value="">Auto</option>
+    </select>
     <select id="searchField">
       <option value="hex">Hex</option>
       <option value="callsign">Callsign</option>
@@ -1030,6 +1034,7 @@ function renderSearchResults(results) {
 async function runSearch() {
   const field = document.getElementById('searchField').value;
   const value = document.getElementById('searchValue').value.trim();
+  const provider = document.getElementById('searchProvider').value; // '' means Auto -- omit from the request
   const statusEl = document.getElementById('searchStatus');
   if (!value) { statusEl.textContent = 'Enter a value first.'; return; }
 
@@ -1037,7 +1042,9 @@ async function runSearch() {
   document.getElementById('searchResults').innerHTML = '';
 
   try {
-    const res = await fetch(`${API_BASE}/search/${encodeURIComponent(field)}/${encodeURIComponent(value)}`);
+    const url = `${API_BASE}/search/${encodeURIComponent(field)}/${encodeURIComponent(value)}`
+      + (provider ? `?provider_name=${encodeURIComponent(provider)}` : '');
+    const res = await fetch(url);
     const data = await res.json();
     if (!res.ok) {
       statusEl.textContent = data.detail || 'Search failed.';
@@ -1057,6 +1064,48 @@ async function runSearch() {
   }
 }
 
+// Populate the provider dropdown once at load -- "Auto" (already in the
+// markup) plus whatever's actually configured server-side, so this
+// never needs to hardcode provider names (or their supported fields)
+// that could drift out of sync with the backend.
+const providerEndpoints = {}; // provider name -> Set of supported field values
+
+function applyProviderFieldFilter() {
+  const provider = document.getElementById('searchProvider').value;
+  const fieldSelect = document.getElementById('searchField');
+  const allowed = provider ? providerEndpoints[provider] : null; // null = Auto = no restriction
+
+  let selectedStillValid = false;
+  Array.from(fieldSelect.options).forEach(opt => {
+    const ok = !allowed || allowed.has(opt.value);
+    opt.disabled = !ok;
+    if (opt.value === fieldSelect.value && ok) selectedStillValid = true;
+  });
+
+  if (!selectedStillValid) {
+    const firstValid = Array.from(fieldSelect.options).find(opt => !opt.disabled);
+    if (firstValid) fieldSelect.value = firstValid.value;
+  }
+}
+
+(async () => {
+  try {
+    const res = await fetch(`${API_BASE}/providers`);
+    const data = await res.json();
+    const select = document.getElementById('searchProvider');
+    (data.providers || []).forEach(p => {
+      providerEndpoints[p.name] = new Set(p.endpoints || []);
+      const opt = document.createElement('option');
+      opt.value = p.name;
+      opt.textContent = p.name;
+      select.appendChild(opt);
+    });
+  } catch (e) {
+    console.error('Could not load provider list:', e);
+  }
+})();
+
+document.getElementById('searchProvider').addEventListener('change', applyProviderFieldFilter);
 document.getElementById('searchBtn').addEventListener('click', runSearch);
 document.getElementById('searchValue').addEventListener('keydown', evt => {
   if (evt.key === 'Enter') runSearch(); // still an explicit user action

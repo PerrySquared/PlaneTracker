@@ -11,6 +11,7 @@ class AircraftInformation(AircraftInformationBase):
     TIMEOUT = ClientTimeout(total=10)
     BASE_URL = "https://api.airplanes.live/v2"
     SOURCE = "airplanes.live"
+    SUPPORTED_ENDPOINTS = None
 
     def __init__(self, token_manager: None = None):
         self.HEADERS = {

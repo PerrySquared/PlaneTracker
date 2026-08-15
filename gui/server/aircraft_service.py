@@ -13,15 +13,19 @@ import time
 from collections.abc import Iterable
 
 from api.aircraft_information_interface import AircraftInformationInterface
-from container import Container
+from api.providers.base import AircraftInformationBase
+from container import providers_container
+
+from .config import SEARCH_FIELDS
 
 log = logging.getLogger("aircraft-server")
 
 # ---------------------------------------------------------------------------
 # 0. INTEGRATION POINT — construct the interface with its real providers.
 # ---------------------------------------------------------------------------
-c = Container()
-aircraft_interface = AircraftInformationInterface(providers=c.aircraft_information_apis)
+aircraft_interface = AircraftInformationInterface(
+    providers=providers_container.aircraft_information_apis
+)
 
 
 def _require_interface():
@@ -60,31 +64,48 @@ async def get_current_aircraft() -> Iterable:
 #     handling only needs to live in one place instead of being
 #     duplicated at each call site.
 # ---------------------------------------------------------------------------
-async def fetch_aircraft_data(search: list[str], api_endpoint_select: str) -> Iterable:
+async def fetch_aircraft_data(
+    search: list[str],
+    api_endpoint_select: str,
+    provider: AircraftInformationBase | None = None,
+) -> Iterable:
     _require_interface()
+
     start = time.monotonic()
-    log.info("API fetch start: field=%s values=%s", api_endpoint_select, search)
+    log.info(
+        "API fetch start: field=%s values=%s provider=%s",
+        api_endpoint_select,
+        search,
+        provider or "auto",
+    )
+
     try:
         results = await aircraft_interface.fetch_normalized_flight_data(
-            search=search, api_endpoint_select=api_endpoint_select
+            search=search,
+            api_endpoint_select=api_endpoint_select,
+            provider=provider,
         )
     except Exception:
         elapsed_ms = (time.monotonic() - start) * 1000
         log.exception(
-            "API fetch FAILED after %.0fms: field=%s values=%s",
+            "API fetch FAILED after %.0fms: field=%s values=%s provider=%s",
             elapsed_ms,
             api_endpoint_select,
             search,
+            provider or "auto",
         )
         raise
     elapsed_ms = (time.monotonic() - start) * 1000
+
     log.info(
-        "API fetch OK in %.0fms: field=%s values=%s -> %d result(s)",
+        "API fetch OK in %.0fms: field=%s values=%s provider=%s -> %d result(s)",
         elapsed_ms,
         api_endpoint_select,
         search,
+        provider or "auto",
         len(results),
     )
+
     return results
 
 
@@ -92,9 +113,43 @@ async def fetch_aircraft_data(search: list[str], api_endpoint_select: str) -> It
 # 1c. Search — thin wrapper around fetch_aircraft_data for a single
 #     field/value lookup. Backs the explicit search route.
 # ---------------------------------------------------------------------------
-async def search_aircraft(field: str, value: str) -> Iterable:
+async def search_aircraft(
+    field: str, value: str, provider: AircraftInformationBase | None = None
+) -> Iterable:
     """
     `field` is one of "hex", "callsign", "reg", "type", "squawk" (already
     validated by the caller) and maps directly onto api_endpoint_select.
+    `provider`, if given, restricts the search to that single configured
+    provider with no fallback — see fetch_aircraft_data /
+    AircraftInformationInterface.fetch_normalized_flight_data for what
+    happens if it fails, or if it doesn't match anything configured.
     """
-    return await fetch_aircraft_data([value], field)
+    return await fetch_aircraft_data([value], field, provider=provider)
+
+
+def list_providers_info() -> list[dict]:
+    """
+    Name + supported search fields for every configured provider, for
+    the frontend's provider selector (which also filters the endpoint
+    selector down to what's actually usable once a specific provider
+    is chosen).
+
+    Reads each provider's SUPPORTED_ENDPOINTS class attribute — a
+    convention, not something enforced by AircraftInformationInterface
+    itself, so a provider that doesn't declare it (None, or missing
+    entirely) is treated as supporting every field SEARCH_FIELDS knows
+    about.
+    """
+    if aircraft_interface is None:
+        return []
+
+    result = []
+    for p in providers_container.aircraft_information_apis:
+        supported = getattr(p, "SUPPORTED_ENDPOINTS", None)
+        result.append(
+            {
+                "name": getattr(p, "SOURCE", "?"),
+                "endpoints": sorted(supported) if supported else sorted(SEARCH_FIELDS),
+            }
+        )
+    return result
