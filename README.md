@@ -51,8 +51,7 @@ PlaneTracker/
 │       └── routes/
 ├── container.py
 ├── exceptions.py
-├── pyproject.toml
-└── main.py
+└── pyproject.toml
 ```
 
 ## Installation
