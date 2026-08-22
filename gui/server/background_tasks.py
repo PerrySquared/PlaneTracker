@@ -12,10 +12,20 @@ import logging
 from db.database import get_session
 from db.upserts import record_position, upsert_aircraft_state
 
+from . import state
 from .aircraft_service import fetch_aircraft_data, get_current_aircraft
-from .config import BROADCAST_INTERVAL_SECONDS, FAVORITES_POLL_INTERVAL_SECONDS
+from .config import (
+    BROADCAST_INTERVAL_SECONDS,
+    FAVORITES_POLL_INTERVAL_SECONDS,
+    PROVIDER_FETCH_FAILED_HINT,
+)
 from .serialization import serialize_aircraft
-from .state import favorite_cache, favorite_cache_lock, favorites, manager
+from .state import (
+    favorite_cache,
+    favorite_cache_lock,
+    favorites,
+    manager,
+)
 
 log = logging.getLogger("aircraft-server")
 
@@ -41,7 +51,14 @@ async def broadcast_loop():
             for hex_code, d in merged.items():
                 d["is_favorite"] = hex_code in fav_set
 
-            payload = json.dumps({"aircraft": list(merged.values())})
+            async with state.favorites_fetch_error_lock:
+                fetch_error = state.favorites_fetch_error
+
+            payload_obj: dict = {"aircraft": list(merged.values())}
+            if fetch_error:
+                payload_obj["favorites_fetch_error"] = fetch_error
+
+            payload = json.dumps(payload_obj)
             await manager.broadcast(payload)
         except Exception:
             log.exception("Error while broadcasting aircraft")
@@ -61,6 +78,8 @@ async def _fetch_favorite_states(fav_hexes: list[str]) -> dict[str, dict]:
     poll should just mean "nothing fresh this cycle," not stop the loop.
     """
     if not fav_hexes:
+        async with state.favorites_fetch_error_lock:
+            state.favorites_fetch_error = None
         return {}
     try:
         results = await fetch_aircraft_data(fav_hexes, "hex")
@@ -68,7 +87,12 @@ async def _fetch_favorite_states(fav_hexes: list[str]) -> dict[str, dict]:
         log.warning(
             "Favorites poll got nothing this cycle (fetch failed) for hexes=%s", fav_hexes
         )
+        async with state.favorites_fetch_error_lock:
+            state.favorites_fetch_error = f"Could not refresh favorites from any provider. {PROVIDER_FETCH_FAILED_HINT}"
         return {}
+
+    async with state.favorites_fetch_error_lock:
+        state.favorites_fetch_error = None
 
     fresh: dict[str, dict] = {}
     for a in results:

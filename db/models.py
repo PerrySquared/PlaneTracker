@@ -106,3 +106,14 @@ class Favorite(Model):
     added_at: Mapped[dt.datetime] = mapped_column(DateTime, server_default=func.now())
 
     aircraft: Mapped[Aircraft] = relationship(back_populates="favorite")
+
+
+class Credential(Model):
+    __tablename__ = "credentials"
+
+    source: Mapped[str] = mapped_column(primary_key=True)
+    client_id: Mapped[str | None] = mapped_column(String)
+    client_secret: Mapped[str | None] = mapped_column(String)
+    login: Mapped[str | None] = mapped_column(String)
+    password: Mapped[str | None] = mapped_column(String)
+    api_key: Mapped[str | None] = mapped_column(String)

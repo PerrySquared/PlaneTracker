@@ -1,21 +1,29 @@
 import datetime as dt
-import os
+from collections.abc import Awaitable, Callable
 
 import aiohttp
-from dotenv import load_dotenv
 
-load_dotenv()
+from db.models import Credential
+from exceptions import AircraftFetchError
 
 TOKEN_URL = "https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token"
-CLIENT_ID = os.getenv("OPENSKY_CLIENT_ID")
-CLIENT_SECRET = os.getenv("OPENSKY_CLIENT_SECRET")
 
 # How many seconds before expiry to proactively refresh the token.
 TOKEN_REFRESH_MARGIN = 120
 
 
 class TokenManager:
-    def __init__(self):
+    def __init__(
+        self,
+        source: str,
+        get_credentials: Callable[[str], Awaitable[Credential | None]],
+    ):
+        self.source = source
+        self._get_credentials = get_credentials
+        self.token = None
+        self.expires_at = None
+
+    def invalidate(self) -> None:
         self.token = None
         self.expires_at = None
 
@@ -27,15 +35,19 @@ class TokenManager:
         return await self._refresh()
 
     async def _request_token(self):
-        """Fetch the acces token from the auth server."""
+        """Fetch the access token from the auth server."""
+
+        creds = await self._get_credentials(self.source)
+        if not creds or not creds.client_id or not creds.client_secret:
+            raise AircraftFetchError(f"{self.source} credentials not configured")
 
         async with aiohttp.ClientSession() as session:
             r = await session.post(
                 TOKEN_URL,
                 data={
                     "grant_type": "client_credentials",
-                    "client_id": CLIENT_ID,
-                    "client_secret": CLIENT_SECRET,
+                    "client_id": creds.client_id,
+                    "client_secret": creds.client_secret,
                 },
             )
             r.raise_for_status()

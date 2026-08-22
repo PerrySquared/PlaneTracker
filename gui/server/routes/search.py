@@ -11,7 +11,7 @@ from fastapi import APIRouter, HTTPException, Query
 from container import providers_container
 
 from ..aircraft_service import list_providers_info, search_aircraft
-from ..config import SEARCH_FIELDS
+from ..config import PROVIDER_FETCH_FAILED_HINT, SEARCH_FIELDS
 from ..serialization import serialize_aircraft
 from ..state import favorites
 
@@ -46,7 +46,8 @@ async def search(field: str, value: str, provider_name: str | None = Query(None)
             "Search failed for %s=%s provider=%s", field, value, provider_name or "auto"
         )
         raise HTTPException(
-            status_code=502, detail="Search request to upstream source failed."
+            status_code=502,
+            detail=f"Search request to upstream source failed. {PROVIDER_FETCH_FAILED_HINT}",
         )
 
     fav_set = set(await favorites.list())

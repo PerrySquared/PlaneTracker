@@ -153,3 +153,42 @@ def list_providers_info() -> list[dict]:
             }
         )
     return result
+
+
+async def list_credentials_for_ui() -> list[dict]:
+    """
+    Schema + safe display values for every provider that declares
+    CREDENTIAL_FIELDS. Secret values are never returned; configured
+    flags indicate whether a value is already stored locally.
+    """
+    from db.credentials_store import SECRET_KEYS, credentials_store
+
+    providers_out = []
+    for p in providers_container.aircraft_information_apis:
+        # Instance attributes hold runtime state; field schema lives on the class.
+        fields = getattr(type(p), "CREDENTIAL_FIELDS", None)
+        if not fields:
+            continue
+
+        source = getattr(p, "SOURCE", "?")
+        row = await credentials_store.get(source)
+
+        values: dict[str, str] = {}
+        configured: dict[str, bool] = {}
+        for field in fields:
+            key = field["key"]
+            stored = getattr(row, key, None) if row else None
+            configured[key] = bool(stored)
+            # Non-secret columns can be prefilled in the form; secrets stay masked client-side.
+            if key not in SECRET_KEYS and stored:
+                values[key] = stored
+
+        providers_out.append(
+            {
+                "source": source,
+                "fields": list(fields),
+                "values": values,
+                "configured": configured,
+            }
+        )
+    return providers_out

@@ -20,3 +20,8 @@ favorites = FavoritesStore(MAX_FAVORITES)
 # slower cadence.
 favorite_cache: dict[str, dict] = {}
 favorite_cache_lock = asyncio.Lock()
+
+# Set by favorites_poll_loop when fetch_aircraft_data raises; cleared on success.
+# broadcast_loop forwards this to clients so the favorites panel can warn once.
+favorites_fetch_error: str | None = None
+favorites_fetch_error_lock = asyncio.Lock()

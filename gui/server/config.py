@@ -73,3 +73,9 @@ INDEX_PATH = STATIC_DIR / "index.html"
 GLOBE_JS_PATH = STATIC_DIR / "globe.gl.min.js"
 GEOJSON_JS_PATH = STATIC_DIR / "world-geojson.js"
 AIRPORTS_JS_PATH = STATIC_DIR / "airports.js"
+
+# Appended to user-facing errors when every configured provider fails a fetch.
+PROVIDER_FETCH_FAILED_HINT = (
+    "Check that providers are configured and use Credentials in the top bar "
+    "to fill in any required API keys."
+)

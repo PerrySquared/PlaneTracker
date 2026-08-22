@@ -28,6 +28,8 @@ class AircraftInformationBase(ABC):
     SOURCE: str
     # None means every endpoint used by the UI is available
     SUPPORTED_ENDPOINTS: ClassVar[tuple[str, ...] | None]
+    # None means the provider needs no API credentials
+    CREDENTIAL_FIELDS: ClassVar[tuple[dict, ...] | None] = None
 
     def __init__(self, token_manager):
         self.token_manager = token_manager

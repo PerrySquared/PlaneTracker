@@ -55,7 +55,7 @@ sys.path.insert(0, str(_find_project_root(Path(__file__).parent)))
 from db.database import init_db
 
 from .background_tasks import broadcast_loop, favorites_poll_loop
-from .routes import favorites, history, search, static, websocket
+from .routes import credentials, favorites, history, search, static, websocket
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("aircraft-server")
@@ -72,6 +72,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 
 app.include_router(favorites.router)
+app.include_router(credentials.router)
 app.include_router(search.router)
 app.include_router(history.router)
 app.include_router(websocket.router)

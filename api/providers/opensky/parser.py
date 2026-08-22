@@ -14,6 +14,14 @@ class AircraftInformation(AircraftInformationBase):
     BASE_URL = "https://opensky-network.org/api"
     SOURCE = "opensky-network.org"
     SUPPORTED_ENDPOINTS = ("hex",)
+    CREDENTIAL_FIELDS = (
+        {"key": "client_id", "label": "Client ID", "type": "text"},
+        {
+            "key": "client_secret",
+            "label": "Client Secret",
+            "type": "password",
+        },
+    )
 
     def __init__(self, token_manager: TokenManager):
         self.token_manager = token_manager

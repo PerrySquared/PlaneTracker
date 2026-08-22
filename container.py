@@ -3,12 +3,18 @@ from api.providers.base import AircraftInformationBase  # noqa
 from api.providers.airplaneslive import parser as airplaneslive
 from api.providers.opensky import parser as opensky
 from api.providers.opensky.tokenmanager import TokenManager as opensky_tm
+from db.credentials_store import credentials_store
 
 
 class ProvidersContainer:
     def __init__(self):
         self.airplaneslive = airplaneslive.AircraftInformation()
-        self.opensky = opensky.AircraftInformation(opensky_tm())
+        self.opensky = opensky.AircraftInformation(
+            opensky_tm(
+                source="opensky-network.org",
+                get_credentials=credentials_store.get,
+            )
+        )
 
         self.aircraft_information_apis: list[AircraftInformationBase] = [
             self.airplaneslive,
