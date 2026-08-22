@@ -16,6 +16,7 @@ async function createWindow() {
     minHeight: 600,
     backgroundColor: '#05070c', // avoids a white flash while the server boots
     title: 'Aircraft Tracker',
+    icon: path.join(__dirname, 'assets', 'icon.png'),
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,

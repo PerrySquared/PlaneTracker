@@ -73,6 +73,9 @@ INDEX_PATH = STATIC_DIR / "index.html"
 GLOBE_JS_PATH = STATIC_DIR / "globe.gl.min.js"
 GEOJSON_JS_PATH = STATIC_DIR / "world-geojson.js"
 AIRPORTS_JS_PATH = STATIC_DIR / "airports.js"
+FAVICON_32_PATH = STATIC_DIR / "assets" / "favicon-32.png"
+APPLE_TOUCH_ICON_PATH = STATIC_DIR / "assets" / "apple-touch-icon.png"
+FAVICON_ICO_PATH = STATIC_DIR / "assets" / "icon.ico"
 
 # Appended to user-facing errors when every configured provider fails a fetch.
 PROVIDER_FETCH_FAILED_HINT = (

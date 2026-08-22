@@ -15,6 +15,7 @@
   "build": {
     "appId": "com.example.aircrafttracker",
     "productName": "Aircraft Tracker",
+    "icon": "assets/icon",
     "files": [
       "main.js",
       "pythonServer.js",
@@ -22,6 +23,7 @@
       "index.html",
       "globe.gl.min.js",
       "world-geojson.js",
+      "assets/**/*",
       "server/**/*",
       "!server/**/__pycache__/**",
       "!server/**/*.pyc"

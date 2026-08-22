@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
+  <rect width="512" height="512" rx="96" fill="#05070c"/>
+  <!-- Radar rings -->
+  <circle cx="256" cy="256" r="200" stroke="#5eead4" stroke-width="6" opacity="0.35"/>
+  <circle cx="256" cy="256" r="130" stroke="#5eead4" stroke-width="5" opacity="0.5"/>
+  <circle cx="256" cy="256" r="60" stroke="#5eead4" stroke-width="4" opacity="0.65"/>
+  <!-- Crosshairs -->
+  <line x1="256" y1="56" x2="256" y2="456" stroke="#5eead4" stroke-width="4" opacity="0.4"/>
+  <line x1="56" y1="256" x2="456" y2="256" stroke="#5eead4" stroke-width="4" opacity="0.4"/>
+  <!-- Plane outline (top-down, nose up) -->
+  <g transform="translate(256 230) rotate(-25) scale(2)">
+    <path d="M 0 -52 L 14 18 L 52 28 L 14 38 L 14 52 L 0 44 L -14 52 L -14 38 L -52 28 L -14 18 Z"
+          stroke="#5eead4" stroke-width="7" stroke-linejoin="round" fill="none"/>
+  </g>
+</svg>
