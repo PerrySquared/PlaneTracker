@@ -251,6 +251,114 @@
     color: var(--status-connected);
   }
   .trail-scope-btn:hover { color: var(--text-primary); }
+
+  .credentials-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(5, 7, 12, 0.72);
+    pointer-events: auto;
+  }
+  .credentials-overlay[hidden] { display: none; }
+  .credentials-modal {
+    width: 420px;
+    max-width: calc(100vw - 32px);
+    max-height: 70vh;
+    display: flex;
+    flex-direction: column;
+    pointer-events: auto;
+  }
+  .credentials-providers {
+    flex: 1 1 auto;
+    overflow-y: auto;
+    margin-top: 8px;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255,255,255,0.18) transparent;
+  }
+  .credentials-providers::-webkit-scrollbar { width: 6px; }
+  .credentials-providers::-webkit-scrollbar-thumb {
+    background: rgba(255,255,255,0.16);
+    border-radius: 999px;
+  }
+  .credential-block {
+    padding: 10px 0;
+    border-bottom: 1px solid var(--panel-border);
+  }
+  .credential-block:last-child { border-bottom: none; }
+  .credential-block-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+  .credential-block-header .panel-title { margin-bottom: 0; }
+  .credential-field-row {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-bottom: 8px;
+  }
+  .credential-field-row label {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text-dim);
+    letter-spacing: 0.06em;
+  }
+  .credential-field-row input {
+    background: rgba(255,255,255,0.06);
+    border: 1px solid var(--panel-border);
+    border-radius: 6px;
+    color: var(--text-primary);
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 6px;
+  }
+  .credential-field-row input.credential-secret-masked {
+    letter-spacing: 0.15em;
+    color: var(--text-dim);
+    cursor: text;
+  }
+  .credential-block-actions {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+  }
+  .credential-block-actions button {
+    background: rgba(94,234,212,0.15);
+    border: 1px solid rgba(94,234,212,0.4);
+    color: var(--status-connected);
+    border-radius: 6px;
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 6px 10px;
+    cursor: pointer;
+  }
+  .credential-block-actions button:hover { background: rgba(94,234,212,0.25); }
+  .credential-block-actions button.credential-clear-btn {
+    background: rgba(255,255,255,0.06);
+    border: 1px solid var(--panel-border);
+    color: var(--text-dim);
+  }
+  .credential-block-actions button.credential-clear-btn:hover { color: var(--text-primary); }
+  .credentials-footer {
+    margin-top: 10px;
+    padding-top: 8px;
+    border-top: 1px solid var(--panel-border);
+    display: flex;
+    justify-content: flex-end;
+  }
+  .fav-fetch-error {
+    font-size: 10px;
+    font-family: var(--mono);
+    color: var(--status-bad);
+    margin-bottom: 6px;
+    line-height: 1.4;
+  }
+  .fav-fetch-error[hidden] { display: none; }
 </style>
 </head>
 <body>
@@ -265,6 +373,7 @@
   </div>
   <div class="hud-count"><span id="aircraftCount">0</span> aircraft</div>
   <button id="airportToggle" class="airport-toggle active">Airports</button>
+  <button id="credentialsBtn" class="airport-toggle">Credentials</button>
 </div>
 
 <div class="hud hud-legend">
@@ -298,12 +407,23 @@
 <div class="hud hud-favorites interactive">
   <div class="panel-title">FAVORITES <span id="favCount">0/0</span></div>
   <div class="fav-hint">Click a favorite to view its trail · Ctrl+click to select multiple</div>
+  <div id="favFetchError" class="fav-fetch-error" hidden></div>
   <div id="favoritesList"></div>
   <div id="trailControls" class="trail-controls" style="display:none;">
     <div class="panel-title">TRAIL</div>
     <div class="trail-scope-row">
       <button id="trailScopeCurrent" class="trail-scope-btn">Current flight</button>
       <button id="trailScopeFull" class="trail-scope-btn">Full history</button>
+    </div>
+  </div>
+</div>
+
+<div id="credentialsOverlay" class="credentials-overlay" hidden>
+  <div class="credentials-modal hud interactive">
+    <div class="panel-title">CREDENTIALS</div>
+    <div id="credentialsProviders" class="credentials-providers"></div>
+    <div class="credentials-footer">
+      <button id="credentialsClose" class="airport-toggle">Close</button>
     </div>
   </div>
 </div>
@@ -816,6 +936,17 @@ async function refreshFavoritesList() {
   }
 }
 
+function showFavoritesFetchError(message) {
+  const el = document.getElementById('favFetchError');
+  if (!message) {
+    el.hidden = true;
+    el.textContent = '';
+    return;
+  }
+  el.textContent = message;
+  el.hidden = false;
+}
+
 function renderFavoritesPanel() {
   document.getElementById('favCount').textContent = `${currentFavorites.size}/${favoritesMax}`;
   const list = document.getElementById('favoritesList');
@@ -1138,6 +1269,208 @@ document.getElementById('searchValue').addEventListener('keydown', evt => {
   if (evt.key === 'Enter') runSearch(); // still an explicit user action
 });
 
+// ---------------------------------------------------------------------
+// API credentials — local provider keys stored in SQLite via REST.
+// Field schema comes from the backend; this panel only renders it.
+// ---------------------------------------------------------------------
+const CREDENTIAL_SECRET_MASK = '••••••••';
+const credentialsOverlay = document.getElementById('credentialsOverlay');
+const credentialsBtn = document.getElementById('credentialsBtn');
+const credentialsProvidersEl = document.getElementById('credentialsProviders');
+
+function applyCredentialSecretMask(input) {
+  input.readOnly = true;
+  input.classList.add('credential-secret-masked');
+  input.type = 'text';
+  input.value = CREDENTIAL_SECRET_MASK;
+  input.dataset.masked = 'true';
+  delete input.dataset.editingSecret;
+}
+
+function clearCredentialSecretMaskForEdit(input) {
+  if (input.dataset.masked !== 'true') return;
+  input.readOnly = false;
+  input.classList.remove('credential-secret-masked');
+  input.value = '';
+  input.type = 'password';
+  delete input.dataset.masked;
+  input.dataset.editingSecret = 'true';
+}
+
+function closeCredentialsModal() {
+  credentialsOverlay.hidden = true;
+  credentialsBtn.classList.remove('active');
+}
+
+function renderCredentialsForm(providers) {
+  credentialsProvidersEl.innerHTML = '';
+  if (!providers || providers.length === 0) {
+    credentialsProvidersEl.innerHTML = '<div class="empty-hint">No providers require credentials.</div>';
+    return;
+  }
+
+  providers.forEach(provider => {
+    const block = document.createElement('div');
+    block.className = 'credential-block';
+    block.dataset.source = provider.source;
+
+    const header = document.createElement('div');
+    header.className = 'credential-block-header';
+
+    const title = document.createElement('div');
+    title.className = 'panel-title';
+    title.textContent = provider.source.toUpperCase();
+    header.appendChild(title);
+
+    const actions = document.createElement('div');
+    actions.className = 'credential-block-actions';
+
+    const saveBtn = document.createElement('button');
+    saveBtn.type = 'button';
+    saveBtn.textContent = 'Save';
+    saveBtn.addEventListener('click', () => saveCredentials(provider.source, block));
+    actions.appendChild(saveBtn);
+
+    const clearBtn = document.createElement('button');
+    clearBtn.type = 'button';
+    clearBtn.className = 'credential-clear-btn';
+    clearBtn.textContent = 'Clear';
+    clearBtn.addEventListener('click', () => clearCredentials(provider.source, block));
+    actions.appendChild(clearBtn);
+
+    header.appendChild(actions);
+    block.appendChild(header);
+
+    (provider.fields || []).forEach(field => {
+      const row = document.createElement('div');
+      row.className = 'credential-field-row';
+
+      const label = document.createElement('label');
+      label.textContent = field.label;
+      label.setAttribute('for', `cred-${provider.source}-${field.key}`);
+      row.appendChild(label);
+
+      const input = document.createElement('input');
+      input.id = `cred-${provider.source}-${field.key}`;
+      input.name = field.key;
+      input.type = field.type === 'password' ? 'password' : 'text';
+      input.autocomplete = 'off';
+      input.value = (provider.values && provider.values[field.key]) || '';
+
+      const isSavedSecret = field.type === 'password'
+        && provider.configured && provider.configured[field.key];
+      if (isSavedSecret) {
+        input.dataset.savedSecret = 'true';
+        applyCredentialSecretMask(input);
+        input.addEventListener('focus', () => clearCredentialSecretMaskForEdit(input));
+        input.addEventListener('blur', () => {
+          if (input.dataset.editingSecret === 'true' && !input.value.trim()) {
+            applyCredentialSecretMask(input);
+          } else {
+            delete input.dataset.editingSecret;
+          }
+        });
+      }
+
+      row.appendChild(input);
+      block.appendChild(row);
+    });
+
+    const statusEl = document.createElement('div');
+    statusEl.className = 'search-status credential-block-status';
+    block.appendChild(statusEl);
+
+    credentialsProvidersEl.appendChild(block);
+  });
+}
+
+async function loadCredentialsForm() {
+  try {
+    const res = await fetch(`${API_BASE}/credentials`);
+    const data = await res.json();
+    if (!res.ok) {
+      credentialsProvidersEl.innerHTML = `<div class="empty-hint">${data.detail || 'Could not load credentials.'}</div>`;
+      return;
+    }
+    renderCredentialsForm(data.providers);
+  } catch (e) {
+    console.error('Could not load credentials:', e);
+    credentialsProvidersEl.innerHTML = '<div class="empty-hint">Could not load credentials.</div>';
+  }
+}
+
+async function openCredentialsModal() {
+  credentialsBtn.classList.add('active');
+  credentialsOverlay.hidden = false;
+  credentialsProvidersEl.innerHTML = '<div class="empty-hint">Loading…</div>';
+  await loadCredentialsForm();
+}
+
+function collectCredentialPayload(block) {
+  const payload = {};
+  block.querySelectorAll('input[name]').forEach(input => {
+    if (input.dataset.masked === 'true') return;
+    if (input.dataset.savedSecret === 'true' && !input.value.trim()) return;
+    payload[input.name] = input.value;
+  });
+  return payload;
+}
+
+async function saveCredentials(source, block) {
+  const statusEl = block.querySelector('.credential-block-status');
+  statusEl.textContent = 'Saving…';
+
+  try {
+    const res = await fetch(`${API_BASE}/credentials/${encodeURIComponent(source)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(collectCredentialPayload(block)),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      statusEl.textContent = data.detail || 'Save failed.';
+      return;
+    }
+    statusEl.textContent = 'Saved.';
+    await loadCredentialsForm();
+  } catch (e) {
+    console.error('Credential save failed:', e);
+    statusEl.textContent = 'Save request failed.';
+  }
+}
+
+async function clearCredentials(source, block) {
+  if (!confirm(`Clear stored credentials for ${source}?`)) return;
+
+  const statusEl = block.querySelector('.credential-block-status');
+  statusEl.textContent = 'Clearing…';
+
+  try {
+    const res = await fetch(`${API_BASE}/credentials/${encodeURIComponent(source)}`, {
+      method: 'DELETE',
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      statusEl.textContent = data.detail || 'Clear failed.';
+      return;
+    }
+    statusEl.textContent = 'Cleared.';
+    await loadCredentialsForm();
+  } catch (e) {
+    console.error('Credential clear failed:', e);
+    statusEl.textContent = 'Clear request failed.';
+  }
+}
+
+credentialsBtn.addEventListener('click', openCredentialsModal);
+document.getElementById('credentialsClose').addEventListener('click', closeCredentialsModal);
+credentialsOverlay.addEventListener('click', evt => {
+  if (evt.target === credentialsOverlay) closeCredentialsModal();
+});
+document.addEventListener('keydown', evt => {
+  if (evt.key === 'Escape' && !credentialsOverlay.hidden) closeCredentialsModal();
+});
+
 refreshFavoritesList();
 
 let ws;
@@ -1158,6 +1491,9 @@ function connect() {
   ws.onmessage = evt => {
     let payload;
     try { payload = JSON.parse(evt.data); } catch (e) { console.error('Bad WS payload:', e); return; }
+    if (!Array.isArray(payload)) {
+      showFavoritesFetchError(payload.favorites_fetch_error || null);
+    }
     const list = Array.isArray(payload) ? payload : (payload.aircraft || []);
     const now = performance.now();
     list.forEach(a => upsertAircraft(a, now));
